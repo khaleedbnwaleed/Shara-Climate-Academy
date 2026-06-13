@@ -193,7 +193,7 @@ export default function Home() {
                   </button>
                 ))}
                 <div className="pt-2 border-t border-border">
-                  <Link href="/auth/login" className="block">
+                  <Link href="/login" className="block">
                     <Button variant="outline" className="w-full rounded-full py-3 text-sm">
                       Sign In
                     </Button>
