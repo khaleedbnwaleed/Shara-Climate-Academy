@@ -1,8 +1,8 @@
 ﻿import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { Award, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
-export default function VerifyCertificatePage() {
+function VerifyCertificateContent() {
   const searchParams = useSearchParams();
   const certificateId = searchParams.get('id');
   const [verification, setVerification] = useState<{
@@ -15,7 +15,6 @@ export default function VerifyCertificatePage() {
 
   useEffect(() => {
     if (certificateId) {
-      // Simulate verification
       setTimeout(() => {
         setVerification({
           valid: true,
@@ -91,5 +90,18 @@ export default function VerifyCertificatePage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function VerifyCertificatePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col justify-center items-center min-h-[400px] gap-4">
+        <Loader2 className="h-12 w-12 animate-spin text-green-600" />
+        <p className="text-gray-500">Loading...</p>
+      </div>
+    }>
+      <VerifyCertificateContent />
+    </Suspense>
   );
 }
