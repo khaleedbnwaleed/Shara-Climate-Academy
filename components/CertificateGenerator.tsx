@@ -1,6 +1,7 @@
-'use client';
+﻿'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
+import { generateCertificateQR } from '@/lib/qr-utils';
 
 interface CertificateProps {
   studentName: string;
@@ -16,9 +17,18 @@ export default function CertificateGenerator({
   certificateId 
 }: CertificateProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [qrCode, setQrCode] = useState<string | null>(null);
 
   const CANVAS_WIDTH = 2000;
   const CANVAS_HEIGHT = 1414;
+
+  useEffect(() => {
+    const generateQR = async () => {
+      const qr = await generateCertificateQR(certificateId, studentName, courseName);
+      setQrCode(qr);
+    };
+    generateQR();
+  }, [certificateId, studentName, courseName]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -30,33 +40,51 @@ export default function CertificateGenerator({
     img.src = '/certifates.png';
 
     img.onload = () => {
+      // Draw template (contains signatures already)
       ctx.drawImage(img, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
       const centerX = CANVAS_WIDTH / 2;
 
-      // ===== STUDENT NAME (very large and visible) =====
+      // ===== STUDENT NAME =====
       ctx.font = 'bold 80px "Brush Script MT", cursive';
-      ctx.fillStyle = '#1e3a8a'; // Dark blue
+      ctx.fillStyle = '#1e3a8a';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(studentName, centerX, 650);
 
-      // ===== COURSE NAME (very large and visible) =====
+      // ===== COURSE NAME =====
       ctx.font = 'bold 48px "Georgia", serif';
-      ctx.fillStyle = '#166534'; // Dark green
+      ctx.fillStyle = '#166534';
       ctx.fillText(courseName, centerX, 800);
 
-      // ===== COMPLETION DATE (very large and visible) =====
+      // ===== COMPLETION DATE =====
       ctx.font = '28px "Georgia", serif';
-      ctx.fillStyle = '#000000'; // Black for maximum visibility
+      ctx.fillStyle = '#000000';
       ctx.fillText(`Completed on ${completionDate}`, centerX, 950);
 
-      // ===== CERTIFICATE ID (very large, bold, black) =====
+      // ===== CERTIFICATE ID =====
       ctx.font = 'bold 24px monospace';
-      ctx.fillStyle = '#000000'; // Black for maximum visibility
+      ctx.fillStyle = '#000000';
       ctx.fillText(`Certificate ID: ${certificateId}`, centerX, 1060);
+
+      // ===== QR CODE - Bottom Right Corner =====
+      if (qrCode) {
+        const qrImage = new Image();
+        qrImage.onload = () => {
+          const qrSize = 160;
+          const qrX = CANVAS_WIDTH - qrSize - 50;
+          const qrY = CANVAS_HEIGHT - qrSize - 50;
+          ctx.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
+          
+          ctx.font = '14px "Georgia", serif';
+          ctx.fillStyle = '#1a1a1a';
+          ctx.textAlign = 'center';
+          ctx.fillText('Scan to Verify', qrX + qrSize/2, qrY + qrSize + 30);
+        };
+        qrImage.src = qrCode;
+      }
     };
-  }, [studentName, courseName, completionDate, certificateId]);
+  }, [studentName, courseName, completionDate, certificateId, qrCode]);
 
   const handleDownload = () => {
     const canvas = canvasRef.current;
