@@ -11,10 +11,10 @@ import {
   Star, Users, Clock, BookOpen, CheckCircle, Video, FileText, 
   Download, File, Image as ImageIcon, Award, 
   ArrowLeft, Banknote, CreditCard, X,
-  Lock, AlertTriangle
+  Lock, AlertTriangle, RotateCcw
 } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, collection, getDocs, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, getDocs, setDoc, query, where, orderBy } from 'firebase/firestore';
 import { useTheme } from '@/context/theme-context';
 import { initializePaystackPayment } from '@/lib/paystack';
 
@@ -58,11 +58,11 @@ export default function CourseDetailsPage() {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   
-  // Video tracking states
   const [currentLessonProgress, setCurrentLessonProgress] = useState(0);
   const [totalWatchTime, setTotalWatchTime] = useState(0);
   const [achievements, setAchievements] = useState<string[]>([]);
   const [showAchievement, setShowAchievement] = useState<{name: string, icon: string} | null>(null);
+  const [isSeekingAhead, setIsSeekingAhead] = useState(false);
   const playerRef = useRef<any>(null);
   const watchIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const totalWatchedRef = useRef<number>(0);
@@ -73,7 +73,6 @@ export default function CourseDetailsPage() {
   const completedCount = completedLessons.length;
   const totalCount = lessons.length;
 
-  // Extract YouTube video ID
   const extractYouTubeId = (url: string): string => {
     if (!url) return '';
     let videoUrl = url;
@@ -88,7 +87,6 @@ export default function CourseDetailsPage() {
     return '';
   };
 
-  // Load YouTube API
   useEffect(() => {
     if (!document.querySelector('#youtube-api')) {
       const tag = document.createElement('script');
@@ -116,10 +114,14 @@ export default function CourseDetailsPage() {
     }
   }, [progress, isEnrolled]);
 
-  // Initialize YouTube player
+  // YouTube Player with seeking detection
   useEffect(() => {
     if (!currentLesson || currentLesson.type !== 'video') {
       if (watchIntervalRef.current) clearInterval(watchIntervalRef.current);
+      return;
+    }
+    
+    if (currentLesson.isLocked) {
       return;
     }
     
@@ -138,7 +140,16 @@ export default function CourseDetailsPage() {
             height: '100%',
             width: '100%',
             videoId: videoId,
-            playerVars: { controls: 1, rel: 0, modestbranding: 1 },
+            playerVars: { 
+              controls: 1,
+              rel: 0,
+              modestbranding: 1,
+              showinfo: 0,
+              iv_load_policy: 3,
+              fs: 1,
+              autoplay: 0,
+              playsinline: 1
+            },
             events: {
               onReady: (event) => {
                 const duration = event.target.getDuration();
@@ -149,6 +160,17 @@ export default function CourseDetailsPage() {
                 setCurrentLessonProgress(savedProgress);
               },
               onStateChange: (event) => {
+                if (event.data === window.YT.PlayerState.PLAYING && playerRef.current) {
+                  const currentTime = playerRef.current.getCurrentTime() || 0;
+                  const duration = playerRef.current.getDuration() || 1;
+                  const expectedTime = (totalWatchedRef.current / 100) * duration;
+                  
+                  if (currentTime > expectedTime + 3 && totalWatchedRef.current > 0) {
+                    setIsSeekingAhead(true);
+                    setTimeout(() => setIsSeekingAhead(false), 3000);
+                  }
+                }
+
                 if (event.data === window.YT.PlayerState.PLAYING) {
                   let lastTime = Date.now();
                   if (watchIntervalRef.current) clearInterval(watchIntervalRef.current);
@@ -199,7 +221,6 @@ export default function CourseDetailsPage() {
     };
   }, [currentLesson]);
 
-  // Storage helpers
   const getStoredWatchTime = (lessonId: string): number => {
     const saved = localStorage.getItem(`watch_${user?.uid}_${courseId}_${lessonId}`);
     return saved ? parseFloat(saved) : 0;
@@ -278,21 +299,41 @@ export default function CourseDetailsPage() {
     }
   };
 
+  // ✅ FETCH FROM ROOT LESSONS COLLECTION
   const fetchLessons = async () => {
     try {
       setLoadingLessons(true);
-      const lessonsRef = collection(db, 'courses', courseId, 'lessons');
-      const lessonsSnapshot = await getDocs(lessonsRef);
-      const lessonsData = lessonsSnapshot.docs.map((doc, index) => ({
-        id: doc.id,
-        ...doc.data(),
-        completed: completedLessons.includes(doc.id),
-        isLocked: index > 0 && !completedLessons.includes(lessonsSnapshot.docs[index - 1].id),
-        watchProgress: getStoredProgress(doc.id)
-      })) as Lesson[];
+      
+      const lessonsQ = query(
+        collection(db, 'lessons'),
+        where('courseId', '==', courseId),
+        orderBy('order', 'asc')
+      );
+      const lessonsSnapshot = await getDocs(lessonsQ);
+      
+      const lessonsData = lessonsSnapshot.docs.map((doc, index) => {
+        const data = doc.data();
+        const isCompleted = completedLessons.includes(doc.id);
+        const isLocked = index > 0 && !completedLessons.includes(lessonsSnapshot.docs[index - 1].id);
+        const manuallyUnlocked = localStorage.getItem(`unlocked_${user?.uid}_${courseId}_${doc.id}`) === 'true';
+        
+        return {
+          id: doc.id,
+          title: data.title || 'Untitled Lesson',
+          duration: data.duration || 0,
+          type: data.type || 'video',
+          url: data.content || '',
+          content: data.content || '',
+          completed: isCompleted,
+          isLocked: isLocked && !manuallyUnlocked && !isCompleted,
+          watchProgress: getStoredProgress(doc.id)
+        };
+      });
+      
       setLessons(lessonsData);
+      console.log('Lessons loaded from root collection:', lessonsData.length);
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error fetching lessons:', error);
     } finally {
       setLoadingLessons(false);
     }
@@ -325,10 +366,11 @@ export default function CourseDetailsPage() {
         }
       }
       
-      // Show success toast
+      await fetchLessons();
+      
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
-      toast.innerText = '✅ Lesson completed!';
+      toast.innerText = 'Lesson completed!';
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 3000);
     }
@@ -434,23 +476,69 @@ export default function CourseDetailsPage() {
     }
 
     if (lesson.type === 'video') {
+      const isCompleted = completedLessons.includes(lesson.id);
+      const progressPercent = Math.round(currentLessonProgress);
+
       return (
         <div className="space-y-4">
           <div id={`youtube-player-${lesson.id}`} className="aspect-video bg-black rounded-xl overflow-hidden" />
+          
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className="h-full bg-green-600 transition-all" style={{ width: `${currentLessonProgress}%` }} />
+                <div className="h-full bg-green-600 transition-all duration-300" style={{ width: `${progressPercent}%` }} />
               </div>
             </div>
-            <span className="text-sm text-gray-500">{Math.round(currentLessonProgress)}% watched</span>
+            <span className="text-sm text-gray-500">{progressPercent}% watched</span>
           </div>
-          {currentLessonProgress >= REQUIRED_WATCH_PERCENTAGE && !completedLessons.includes(lesson.id) && (
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 rounded-lg p-3 text-center">
-              <p className="text-sm text-green-700">🎉 You've watched enough! Click "Mark Complete" to finish this lesson.</p>
-              <Button onClick={() => markLessonComplete(lesson.id)} size="sm" className="mt-2 bg-green-600">
-                <CheckCircle className="h-4 w-4 mr-1" /> Mark Complete
+
+          {isSeekingAhead && (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 rounded-lg p-3 text-center">
+              <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                Please watch the video without skipping ahead to mark it complete.
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-3">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => {
+                if (playerRef.current && playerRef.current.seekTo) {
+                  playerRef.current.seekTo(0, true);
+                  if (playerRef.current.playVideo) {
+                    playerRef.current.playVideo();
+                  }
+                }
+              }}
+              className="gap-2"
+            >
+              <RotateCcw className="h-4 w-4" /> Replay
+            </Button>
+
+            {!isCompleted && progressPercent >= REQUIRED_WATCH_PERCENTAGE && (
+              <Button 
+                onClick={() => markLessonComplete(lesson.id)} 
+                size="sm" 
+                className="bg-green-600 hover:bg-green-700 gap-2"
+              >
+                <CheckCircle className="h-4 w-4" /> Mark Complete
               </Button>
+            )}
+
+            {isCompleted && (
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-sm">
+                <CheckCircle className="h-4 w-4" /> Completed
+              </span>
+            )}
+          </div>
+
+          {!isCompleted && progressPercent < REQUIRED_WATCH_PERCENTAGE && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 rounded-lg p-3 text-center">
+              <p className="text-sm text-blue-700 dark:text-blue-400">
+                Watch at least {REQUIRED_WATCH_PERCENTAGE}% of the video to mark it complete.
+              </p>
             </div>
           )}
         </div>
@@ -580,7 +668,7 @@ export default function CourseDetailsPage() {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-2xl w-full p-8 relative">
-          <button onClick={() => setShowCertificate(false)} className="absolute top-4 right-4 text-gray-400">✕</button>
+          <button onClick={() => setShowCertificate(false)} className="absolute top-4 right-4 text-gray-400">X</button>
           <div className="text-center">
             <Award className="h-20 w-20 text-green-600 mx-auto mb-4" />
             <h2 className="text-3xl font-bold mb-2">Congratulations!</h2>
@@ -606,7 +694,7 @@ export default function CourseDetailsPage() {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6 relative">
-          <button onClick={() => setShowPaymentModal(false)} className="absolute top-4 right-4 text-gray-400">✕</button>
+          <button onClick={() => setShowPaymentModal(false)} className="absolute top-4 right-4 text-gray-400">X</button>
           <div className="text-center mb-6">
             <h2 className="text-2xl font-bold">Choose Payment Method</h2>
             <p className="text-gray-500 mt-2">Course: {course?.title}</p>
