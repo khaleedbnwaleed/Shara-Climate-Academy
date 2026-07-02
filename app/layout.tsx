@@ -30,10 +30,10 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang="en" className="scroll-smooth" suppressHydrationWarning>
       <body
         suppressHydrationWarning
-        className="font-sans antialiased bg-background text-foreground"
+        className="font-sans antialiased"
       >
         <ThemeProvider>
           <AuthProvider>{children}</AuthProvider>

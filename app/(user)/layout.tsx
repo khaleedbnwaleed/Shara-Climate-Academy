@@ -19,7 +19,8 @@ export default function StudentLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading, logout } = useAuth();
+  // ✅ FIXED: Use `isLoading` instead of `loading`
+  const { user, isLoading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
@@ -65,14 +66,26 @@ export default function StudentLayout({
     localStorage.setItem(`learning_streak_${user?.uid}`, streak.toString());
   };
 
+  // ✅ FIXED: Use `isLoading` and wait for it to complete
   useEffect(() => {
-    if (!loading && !user) {
+    // Wait until Firebase has finished restoring the session
+    if (isLoading) return;
+
+    if (!user) {
       router.replace('/login');
+      return;
     }
-    if (!loading && user && (user.role === 'lecturer' || user.role === 'admin')) {
-      router.replace(user.role === 'lecturer' ? '/lecturer' : '/admin');
+
+    if (user.role === 'lecturer') {
+      router.replace('/lecturer');
+      return;
     }
-  }, [loading, user, router]);
+
+    if (user.role === 'admin') {
+      router.replace('/admin');
+      return;
+    }
+  }, [isLoading, user, router]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -83,7 +96,8 @@ export default function StudentLayout({
     router.replace('/');
   };
 
-  if (loading) {
+  // ✅ FIXED: Use `isLoading`
+  if (isLoading) {
     return (
       <div className={`h-screen flex items-center justify-center ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gray-50'}`}>
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
@@ -154,6 +168,7 @@ export default function StudentLayout({
             <img
               src={user?.avatar || '/default-avatar.png'}
               className="h-10 w-10 rounded-full object-cover border-2 border-green-500"
+              alt="Profile"
             />
             <div className="flex-1 min-w-0">
               <p className={`text-sm font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -273,6 +288,7 @@ export default function StudentLayout({
               <img
                 src={user?.avatar || '/default-avatar.png'}
                 className="h-8 w-8 rounded-full object-cover border border-gray-200 dark:border-gray-600"
+                alt="Profile"
               />
             </div>
           </div>
@@ -291,7 +307,7 @@ export default function StudentLayout({
         </footer>
       </div>
 
-      {/* Chatbot - Added at the end of the component */}
+      {/* Chatbot */}
       <Chatbot />
     </div>
   );

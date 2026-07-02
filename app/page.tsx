@@ -348,10 +348,10 @@ export default function Home() {
                 image: 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=500&h=300&fit=crop',
               },
               {
-                title: 'Renewable Energy Transition',
-                level: 'Intermediate',
-                price: '₦5,000',
-                image: 'https://images.unsplash.com/photo-1509391366360-2e938286db4c?w=500&h=300&fit=crop',
+                title: 'Introduction to SDGs Goals',
+                level: 'Beginer',
+                price: 'Free',
+                image: '/SDGs.jpeg'
               },
               {
                 title: 'Climate Finance & Carbon Credits',
@@ -429,18 +429,18 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {[
               {
-                name: 'Amara Okonkwo',
-                country: 'Nigeria',
+                name: 'Muhammad sabir babangida',
+                state: 'jigawa state, Nigeria',
                 quote: 'The course gave me the knowledge to launch my renewable energy startup. Life-changing!',
               },
               {
-                name: 'Sophie Martin',
-                country: 'France',
+                name: 'Ahmad Abubakar muhammad',
+                state: 'Kano state, Nigeria',
                 quote: 'I&apos;ve never felt more empowered to advocate for climate policy. Shara changed my career path.',
               },
               {
-                name: 'James Chen',
-                country: 'Singapore',
+                name: 'Maryam Ahmad',
+                state: 'Bauchi state, Nigeria',
                 quote: 'The practical skills from carbon markets course helped our company reduce emissions by 40%.',
               },
             ].map((testimonial, i) => (

@@ -63,6 +63,7 @@ export default function CourseDetailsPage() {
   const [achievements, setAchievements] = useState<string[]>([]);
   const [showAchievement, setShowAchievement] = useState<{name: string, icon: string} | null>(null);
   const [isSeekingAhead, setIsSeekingAhead] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const playerRef = useRef<any>(null);
   const watchIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const totalWatchedRef = useRef<number>(0);
@@ -114,7 +115,7 @@ export default function CourseDetailsPage() {
     }
   }, [progress, isEnrolled]);
 
-  // YouTube Player with seeking detection
+  // YouTube Player - NO AUTO-PLAY
   useEffect(() => {
     if (!currentLesson || currentLesson.type !== 'video') {
       if (watchIntervalRef.current) clearInterval(watchIntervalRef.current);
@@ -129,10 +130,18 @@ export default function CourseDetailsPage() {
     if (!videoId) return;
     
     totalWatchedRef.current = getStoredWatchTime(currentLesson.id);
+    setIsTransitioning(false);
     
     const loadPlayer = () => {
       if (window.YT && window.YT.Player) {
-        if (playerRef.current) playerRef.current.destroy();
+        if (playerRef.current) {
+          try {
+            playerRef.current.destroy();
+          } catch (e) {
+            // Ignore
+          }
+          playerRef.current = null;
+        }
         
         const playerDiv = document.getElementById(`youtube-player-${currentLesson.id}`);
         if (playerDiv) {
@@ -213,11 +222,18 @@ export default function CourseDetailsPage() {
       }
     };
     
-    loadPlayer();
+    setTimeout(loadPlayer, 100);
     
     return () => {
       if (watchIntervalRef.current) clearInterval(watchIntervalRef.current);
-      if (playerRef.current) playerRef.current.destroy();
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch (e) {
+          // Ignore
+        }
+        playerRef.current = null;
+      }
     };
   }, [currentLesson]);
 
@@ -299,7 +315,6 @@ export default function CourseDetailsPage() {
     }
   };
 
-  // ✅ FETCH FROM ROOT LESSONS COLLECTION
   const fetchLessons = async () => {
     try {
       setLoadingLessons(true);
@@ -350,8 +365,14 @@ export default function CourseDetailsPage() {
     setLessons(prev => prev.map(lesson => ({ ...lesson, completed: list.includes(lesson.id) })));
   };
 
+  // Get the next uncompleted lesson
+  const getNextLesson = () => {
+    return lessons.find(l => !completedLessons.includes(l.id) && !l.isLocked) || null;
+  };
+
   const markLessonComplete = async (lessonId: string) => {
-    if (!completedLessons.includes(lessonId)) {
+    if (!completedLessons.includes(lessonId) && !isTransitioning) {
+      setIsTransitioning(true);
       const updated = [...completedLessons, lessonId];
       saveProgress(updated);
       checkAchievements(updated.length);
@@ -368,11 +389,55 @@ export default function CourseDetailsPage() {
       
       await fetchLessons();
       
-      const toast = document.createElement('div');
-      toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
-      toast.innerText = 'Lesson completed!';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 3000);
+      // Find the next lesson
+      const nextLesson = lessons.find(l => !updated.includes(l.id) && !l.isLocked);
+      
+      if (nextLesson) {
+        // Show "Next lesson coming" toast
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-4 right-4 z-50 animate-slide-up bg-blue-600 text-white px-6 py-4 rounded-xl shadow-2xl border border-blue-400 max-w-sm';
+        toast.innerHTML = `
+          <div class="flex items-center gap-4">
+            <div class="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+            <div>
+              <p class="font-semibold text-sm">Next lesson coming...</p>
+              <p class="text-xs opacity-90">"${nextLesson.title}" loading</p>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(toast);
+        
+        // Auto-play next lesson after 1.5 seconds
+        setTimeout(() => {
+          toast.remove();
+          setCurrentLesson(nextLesson);
+          setActiveTab('lessons');
+          setIsTransitioning(false);
+          
+          // Show "Now playing" toast
+          const successToast = document.createElement('div');
+          successToast.className = 'fixed bottom-4 right-4 z-50 animate-slide-up bg-green-600 text-white px-4 py-3 rounded-xl shadow-lg';
+          successToast.innerHTML = `
+            <div class="flex items-center gap-2">
+              <span class="text-xl">▶️</span>
+              <div>
+                <p class="font-semibold text-sm">Now playing</p>
+                <p class="text-xs opacity-90">${nextLesson.title}</p>
+              </div>
+            </div>
+          `;
+          document.body.appendChild(successToast);
+          setTimeout(() => successToast.remove(), 3000);
+        }, 1500);
+        
+      } else {
+        setIsTransitioning(false);
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+        toast.innerText = '🎉 All lessons completed!';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+      }
     }
   };
 
@@ -394,6 +459,20 @@ export default function CourseDetailsPage() {
       setShowCertificate(true);
     } catch (error) {
       console.error('Error:', error);
+    }
+  };
+
+  // "Continue Learning" - opens the next uncompleted lesson
+  const handleContinueLearning = () => {
+    const nextLesson = getNextLesson();
+    if (nextLesson) {
+      setCurrentLesson(null);
+      setTimeout(() => {
+        setCurrentLesson(nextLesson);
+        setActiveTab('lessons');
+      }, 100);
+    } else {
+      setActiveTab('lessons');
     }
   };
 
@@ -481,7 +560,10 @@ export default function CourseDetailsPage() {
 
       return (
         <div className="space-y-4">
-          <div id={`youtube-player-${lesson.id}`} className="aspect-video bg-black rounded-xl overflow-hidden" />
+          <div 
+            id={`youtube-player-${lesson.id}`} 
+            className="aspect-video bg-black rounded-xl overflow-hidden min-h-[250px] sm:min-h-[300px] md:min-h-[400px]" 
+          />
           
           <div className="flex items-center gap-4">
             <div className="flex-1">
@@ -517,7 +599,7 @@ export default function CourseDetailsPage() {
               <RotateCcw className="h-4 w-4" /> Replay
             </Button>
 
-            {!isCompleted && progressPercent >= REQUIRED_WATCH_PERCENTAGE && (
+            {!isCompleted && progressPercent >= REQUIRED_WATCH_PERCENTAGE && !isTransitioning && (
               <Button 
                 onClick={() => markLessonComplete(lesson.id)} 
                 size="sm" 
@@ -852,7 +934,10 @@ export default function CourseDetailsPage() {
                         <Button className="w-full bg-purple-600"><Award className="mr-2 h-4 w-4" /> View Certificate</Button>
                       </Link>
                     ) : (
-                      <Button onClick={() => setActiveTab('lessons')} className="w-full bg-blue-600">
+                      <Button 
+                        onClick={handleContinueLearning} 
+                        className="w-full bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                      >
                         {completedCount > 0 ? 'Continue Learning' : 'Start Learning'}
                       </Button>
                     )}

@@ -1229,6 +1229,4 @@ export default function CourseManagement() {
       )}
     </div>
   );
-} 
-  
- 
+}

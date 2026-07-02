@@ -45,51 +45,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setPersistence(auth, browserLocalPersistence).catch(console.error);
+    let isMounted = true;
+    let unsubscribe: (() => void) | null = null;
 
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log('Auth state changed:', firebaseUser?.email || 'No user');
-      
-      if (firebaseUser) {
-        try {
-          const userRef = doc(db, 'users', firebaseUser.uid);
-          const userSnap = await getDoc(userRef);
+    //  Step 1: Set persistence FIRST
+    setPersistence(auth, browserLocalPersistence)
+      .then(() => {
+        console.log(' Firebase auth persistence set to LOCAL');
+        
+        //  Step 2: Then check auth state
+        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+          if (!isMounted) return;
+          console.log(' Auth state changed:', firebaseUser?.email || 'No user');
           
-          if (userSnap.exists()) {
-            const userData = userSnap.data() as AppUser;
-            console.log('User loaded:', userData.email, 'Role:', userData.role);
-            setUser(userData);
+          if (firebaseUser) {
+            try {
+              const userRef = doc(db, 'users', firebaseUser.uid);
+              const userSnap = await getDoc(userRef);
+              
+              if (userSnap.exists()) {
+                const userData = userSnap.data() as AppUser;
+                console.log(' User loaded:', userData.email, 'Role:', userData.role);
+                setUser(userData);
+              } else {
+                console.log(' Creating new user document');
+                const newUser: AppUser = {
+                  uid: firebaseUser.uid,
+                  email: firebaseUser.email,
+                  name: '',
+                  role: 'student',
+                  bio: '',
+                  avatar: '/default-avatar.png',
+                  enrolledCourses: [],
+                  completedCourses: [],
+                  approved: true,
+                  status: 'active',
+                };
+                await setDoc(userRef, newUser);
+                setUser(newUser);
+              }
+            } catch (error) {
+              console.error(' Error loading user:', error);
+            }
           } else {
-            console.log('Creating new user document');
-            const newUser: AppUser = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              name: '',
-              role: 'student',
-              bio: '',
-              avatar: '/default-avatar.png',
-              enrolledCourses: [],
-              completedCourses: [],
-              approved: true,
-              status: 'active',
-            };
-            await setDoc(userRef, newUser);
-            setUser(newUser);
+            setUser(null);
           }
-        } catch (error) {
-          console.error('Error loading user:', error);
-        }
-      } else {
-        setUser(null);
-      }
-      setIsLoading(false);
-    });
+          setIsLoading(false);
+        });
+      })
+      .catch((error) => {
+        console.error(' Error setting persistence:', error);
+        // Still try to check auth state even if persistence fails
+        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+          if (!isMounted) return;
+          console.log(' Auth state changed (fallback):', firebaseUser?.email || 'No user');
+          // ... rest of auth state handling
+          setIsLoading(false);
+        });
+      });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
-    console.log('Logging in:', email);
+    console.log('🔑 Logging in:', email);
+    
+    //  Ensure persistence is set before login
+    await setPersistence(auth, browserLocalPersistence);
+    
     const result = await signInWithEmailAndPassword(auth, email, password);
     
     const userRef = doc(db, 'users', result.user.uid);
@@ -103,11 +129,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Your account is pending admin approval.');
       }
     }
-    console.log('Login successful');
+    console.log(' Login successful');
   };
 
   const register = async (email: string, password: string, name: string, role: string) => {
-    console.log('Registering:', email);
+    console.log(' Registering:', email);
+    
+    //  Ensure persistence is set before registration
+    await setPersistence(auth, browserLocalPersistence);
+    
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const needsApproval = role === 'professional' || role === 'lecturer';
     
@@ -126,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
     setUser(newUser);
-    console.log('Registration successful');
+    console.log(' Registration successful');
   };
 
   const logout = async () => {

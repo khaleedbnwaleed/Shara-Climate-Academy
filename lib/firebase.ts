@@ -1,5 +1,9 @@
 ﻿import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { 
+  getAuth, 
+  setPersistence, 
+  browserLocalPersistence 
+} from "firebase/auth";
 import { getFirestore, initializeFirestore, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
 import { getStorage } from 'firebase/storage';
 
@@ -15,7 +19,24 @@ const firebaseConfig = {
 
 // Initialize app only once
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+//  Create auth instance
 const auth = getAuth(app);
+
+//  Set persistence IMMEDIATELY and wait for it
+let persistenceReady = false;
+let persistencePromise: Promise<void> | null = null;
+
+if (typeof window !== 'undefined') {
+  persistencePromise = setPersistence(auth, browserLocalPersistence)
+    .then(() => {
+      persistenceReady = true;
+      console.log('Firebase auth persistence set to LOCAL');
+    })
+    .catch((error) => {
+      console.error(' Error setting auth persistence:', error);
+    });
+}
 
 // Initialize Firestore with cache settings (only once)
 let db;
@@ -27,7 +48,6 @@ if (typeof window !== 'undefined') {
       }
     });
   } catch (error) {
-    // If already initialized, get existing instance
     db = getFirestore(app);
   }
 } else {
@@ -36,5 +56,6 @@ if (typeof window !== 'undefined') {
 
 const storage = getStorage(app);
 
-export { app, auth, db, storage };
+//  Export persistence ready state for auth context
+export { app, auth, db, storage, persistenceReady, persistencePromise };
 export default app;
