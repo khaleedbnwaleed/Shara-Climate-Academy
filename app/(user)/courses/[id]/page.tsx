@@ -115,7 +115,7 @@ export default function CourseDetailsPage() {
     }
   }, [progress, isEnrolled]);
 
-  // YouTube Player - NO AUTO-PLAY
+  // YouTube Player - WITH AUTO-PLAY
   useEffect(() => {
     if (!currentLesson || currentLesson.type !== 'video') {
       if (watchIntervalRef.current) clearInterval(watchIntervalRef.current);
@@ -156,7 +156,7 @@ export default function CourseDetailsPage() {
               showinfo: 0,
               iv_load_policy: 3,
               fs: 1,
-              autoplay: 0,
+              autoplay: 1,
               playsinline: 1
             },
             events: {
@@ -167,6 +167,7 @@ export default function CourseDetailsPage() {
                   event.target.seekTo((savedProgress / 100) * duration, true);
                 }
                 setCurrentLessonProgress(savedProgress);
+                event.target.playVideo();
               },
               onStateChange: (event) => {
                 if (event.data === window.YT.PlayerState.PLAYING && playerRef.current) {
@@ -407,14 +408,12 @@ export default function CourseDetailsPage() {
         `;
         document.body.appendChild(toast);
         
-        // Auto-play next lesson after 1.5 seconds
         setTimeout(() => {
           toast.remove();
           setCurrentLesson(nextLesson);
           setActiveTab('lessons');
           setIsTransitioning(false);
           
-          // Show "Now playing" toast
           const successToast = document.createElement('div');
           successToast.className = 'fixed bottom-4 right-4 z-50 animate-slide-up bg-green-600 text-white px-4 py-3 rounded-xl shadow-lg';
           successToast.innerHTML = `
@@ -462,15 +461,51 @@ export default function CourseDetailsPage() {
     }
   };
 
-  // "Continue Learning" - opens the next uncompleted lesson
+  // ✅ UPDATED: "Continue Learning" - plays next uncompleted lesson, or loops through lessons
   const handleContinueLearning = () => {
-    const nextLesson = getNextLesson();
+    // First, try to find the next uncompleted lesson
+    let nextLesson = getNextLesson();
+    
+    // If no uncompleted lessons found, get the next lesson in order
+    if (!nextLesson) {
+      const currentIndex = lessons.findIndex(l => l.id === currentLesson?.id);
+      
+      if (currentIndex !== -1 && currentIndex < lessons.length - 1) {
+        nextLesson = lessons[currentIndex + 1];
+      } else if (currentIndex === lessons.length - 1) {
+        nextLesson = lessons[0];
+      } else if (lessons.length > 0) {
+        nextLesson = lessons[0];
+      }
+    }
+    
     if (nextLesson) {
+      // Show "Loading next lesson" toast
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-4 right-4 z-50 animate-slide-up bg-blue-600 text-white px-6 py-4 rounded-xl shadow-2xl border border-blue-400 max-w-sm';
+      toast.innerHTML = `
+        <div class="flex items-center gap-4">
+          <div class="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+          <div>
+            <p class="font-semibold text-sm">Loading next lesson...</p>
+            <p class="text-xs opacity-90">"${nextLesson.title}"</p>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(toast);
+      
       setCurrentLesson(null);
       setTimeout(() => {
+        toast.remove();
         setCurrentLesson(nextLesson);
         setActiveTab('lessons');
-      }, 100);
+        // Auto-play after video loads
+        setTimeout(() => {
+          if (playerRef.current && playerRef.current.playVideo) {
+            playerRef.current.playVideo();
+          }
+        }, 500);
+      }, 800);
     } else {
       setActiveTab('lessons');
     }
