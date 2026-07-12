@@ -115,7 +115,7 @@ export default function CourseDetailsPage() {
     }
   }, [progress, isEnrolled]);
 
-  // YouTube Player - WITH AUTO-PLAY
+  // YouTube Player - NO AUTO-PLAY (user must click play)
   useEffect(() => {
     if (!currentLesson || currentLesson.type !== 'video') {
       if (watchIntervalRef.current) clearInterval(watchIntervalRef.current);
@@ -156,7 +156,7 @@ export default function CourseDetailsPage() {
               showinfo: 0,
               iv_load_policy: 3,
               fs: 1,
-              autoplay: 1,
+              autoplay: 0,        // ✅ NO AUTO-PLAY
               playsinline: 1
             },
             events: {
@@ -167,7 +167,7 @@ export default function CourseDetailsPage() {
                   event.target.seekTo((savedProgress / 100) * duration, true);
                 }
                 setCurrentLessonProgress(savedProgress);
-                event.target.playVideo();
+                // ✅ DO NOT auto-play here
               },
               onStateChange: (event) => {
                 if (event.data === window.YT.PlayerState.PLAYING && playerRef.current) {
@@ -420,7 +420,7 @@ export default function CourseDetailsPage() {
             <div class="flex items-center gap-2">
               <span class="text-xl">▶️</span>
               <div>
-                <p class="font-semibold text-sm">Now playing</p>
+                <p class="font-semibold text-sm">Ready to watch</p>
                 <p class="text-xs opacity-90">${nextLesson.title}</p>
               </div>
             </div>
@@ -461,12 +461,10 @@ export default function CourseDetailsPage() {
     }
   };
 
-  // ✅ UPDATED: "Continue Learning" - plays next uncompleted lesson, or loops through lessons
+  // "Continue Learning" - switches to next lesson (no auto-play)
   const handleContinueLearning = () => {
-    // First, try to find the next uncompleted lesson
     let nextLesson = getNextLesson();
     
-    // If no uncompleted lessons found, get the next lesson in order
     if (!nextLesson) {
       const currentIndex = lessons.findIndex(l => l.id === currentLesson?.id);
       
@@ -480,7 +478,6 @@ export default function CourseDetailsPage() {
     }
     
     if (nextLesson) {
-      // Show "Loading next lesson" toast
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-4 right-4 z-50 animate-slide-up bg-blue-600 text-white px-6 py-4 rounded-xl shadow-2xl border border-blue-400 max-w-sm';
       toast.innerHTML = `
@@ -499,12 +496,6 @@ export default function CourseDetailsPage() {
         toast.remove();
         setCurrentLesson(nextLesson);
         setActiveTab('lessons');
-        // Auto-play after video loads
-        setTimeout(() => {
-          if (playerRef.current && playerRef.current.playVideo) {
-            playerRef.current.playVideo();
-          }
-        }, 500);
       }, 800);
     } else {
       setActiveTab('lessons');
@@ -618,6 +609,7 @@ export default function CourseDetailsPage() {
           )}
 
           <div className="flex flex-wrap gap-3">
+            {/* Replay Button - still works */}
             <Button 
               variant="outline" 
               size="sm"
