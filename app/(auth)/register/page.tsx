@@ -102,13 +102,13 @@ export default function RegisterPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <Alert variant="destructive">
+                <Alert variant="destructive" role="alert" aria-live="assertive">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
               {successMessage && (
-                <Alert className="bg-green-50 border-green-200">
+                <Alert className="bg-green-50 border-green-200" role="status" aria-live="polite">
                   <AlertDescription className="text-green-800">{successMessage}</AlertDescription>
                 </Alert>
               )}
@@ -155,7 +155,7 @@ export default function RegisterPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500"
                 >
                   <option value="student">Student - Start learning immediately</option>
-                  <option value="professional">Instructor - Create and teach courses (requires admin approval)</option>
+                  <option value="professional">Climate professional / instructor (requires admin approval)</option>
                 </select>
                 {(formData.role === 'professional') && (
                   <div className="mt-2 p-3 bg-yellow-50 rounded-md flex items-start gap-2">

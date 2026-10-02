@@ -21,6 +21,7 @@ export default function StudentCoursesPage() {
   const isDarkMode = theme === 'dark';
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [lastDoc, setLastDoc] = useState<any>(null);
@@ -129,6 +130,7 @@ export default function StudentCoursesPage() {
     if (isLoadMore && !hasMore) return;
     
     try {
+      if (!isLoadMore) setLoadError(false);
       if (isLoadMore) {
         setLoadingMore(true);
       } else {
@@ -156,7 +158,9 @@ export default function StudentCoursesPage() {
       const newCourses = snapshot.docs.map(doc => {
         const data = doc.data();
         // Calculate progress for this course
-        const savedProgress = localStorage.getItem(`completed_lessons_${user?.uid}_${doc.id}`);
+            const savedProgress =
+              localStorage.getItem(`completed_lessons_${user?.uid}_${doc.id}`) ||
+              localStorage.getItem(`completed_${user?.uid}_${doc.id}`);
         let progress = 0;
         let totalLessons = data.lessonCount || 0;
         
@@ -179,18 +183,18 @@ export default function StudentCoursesPage() {
         setCourses(prev => [...prev, ...newCourses]);
       } else {
         setCourses(newCourses);
-        
-        // Extract unique categories from all courses
-        const allCourses = await getDocs(collection(db, 'courses'));
-        const uniqueCategories = [...new Set(allCourses.docs.map(d => d.data().category).filter(Boolean))];
-        setCategories(uniqueCategories);
       }
+
+      const pageCategories = newCourses.map(course => course.category).filter(Boolean);
+      setCategories(previous => [...new Set([...previous, ...pageCategories])]);
       
       setHasMore(snapshot.docs.length === PAGE_SIZE);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       
     } catch (error) {
       console.error('Error fetching courses:', error);
+      setLoadError(true);
+      setHasMore(false);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -273,9 +277,10 @@ export default function StudentCoursesPage() {
         <div className="flex flex-col lg:flex-row gap-4 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input 
+            <Input
               value={searchTerm} 
               onChange={e => setSearchTerm(e.target.value)} 
+              aria-label="Search courses"
               placeholder="Search courses by title, topic, or instructor..." 
               className={`pl-10 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : ''}`} 
             />
@@ -284,9 +289,11 @@ export default function StudentCoursesPage() {
           <div className="flex gap-3">
             {/* Level Filter Dropdown */}
             <div className="relative">
-              <Button 
+              <Button
                 variant="outline" 
                 onClick={() => setShowLevelFilter(!showLevelFilter)}
+                aria-expanded={showLevelFilter}
+                aria-haspopup="listbox"
                 className="flex items-center gap-2"
               >
                 <Filter className="h-4 w-4" />
@@ -297,12 +304,15 @@ export default function StudentCoursesPage() {
               {showLevelFilter && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowLevelFilter(false)} />
-                  <div className={`absolute top-full mt-2 right-0 z-50 rounded-lg shadow-lg border overflow-hidden min-w-[160px] ${
+                  <div role="listbox" aria-label="Filter by course level" className={`absolute top-full mt-2 right-0 z-50 rounded-lg shadow-lg border overflow-hidden min-w-40 ${
                     isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
                   }`}>
                     {levels.map(level => (
                       <button
                         key={level.value}
+                        type="button"
+                        role="option"
+                        aria-selected={selectedLevel === level.value}
                         onClick={() => {
                           setSelectedLevel(level.value);
                           setShowLevelFilter(false);
@@ -324,9 +334,11 @@ export default function StudentCoursesPage() {
             {/* Category Filter Dropdown */}
             {categories.length > 0 && (
               <div className="relative">
-                <Button 
+                <Button
                   variant="outline" 
                   onClick={() => setShowCategoryFilter(!showCategoryFilter)}
+                  aria-expanded={showCategoryFilter}
+                  aria-haspopup="listbox"
                   className="flex items-center gap-2"
                 >
                   <BookOpen className="h-4 w-4" />
@@ -337,10 +349,13 @@ export default function StudentCoursesPage() {
                 {showCategoryFilter && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowCategoryFilter(false)} />
-                    <div className={`absolute top-full mt-2 right-0 z-50 rounded-lg shadow-lg border overflow-hidden min-w-[180px] ${
+                    <div role="listbox" aria-label="Filter by course category" className={`absolute top-full mt-2 right-0 z-50 rounded-lg shadow-lg border overflow-hidden min-w-45 ${
                       isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
                     }`}>
                       <button
+                        type="button"
+                        role="option"
+                        aria-selected={selectedCategory === 'all'}
                         onClick={() => {
                           setSelectedCategory('all');
                           setShowCategoryFilter(false);
@@ -356,6 +371,9 @@ export default function StudentCoursesPage() {
                       {categories.map(category => (
                         <button
                           key={category}
+                          type="button"
+                          role="option"
+                          aria-selected={selectedCategory === category}
                           onClick={() => {
                             setSelectedCategory(category);
                             setShowCategoryFilter(false);
@@ -384,24 +402,25 @@ export default function StudentCoursesPage() {
             {searchTerm && (
               <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs">
                 Search: {searchTerm}
-                <button onClick={() => setSearchTerm('')}><X className="h-3 w-3" /></button>
+                <button type="button" aria-label="Clear course search" className="inline-flex min-h-11 min-w-11 items-center justify-center" onClick={() => setSearchTerm('')}><X className="h-3 w-3" /></button>
               </span>
             )}
             {selectedLevel !== 'all' && (
               <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs">
                 {levels.find(l => l.value === selectedLevel)?.label}
-                <button onClick={() => setSelectedLevel('all')}><X className="h-3 w-3" /></button>
+                <button type="button" aria-label="Clear level filter" className="inline-flex min-h-11 min-w-11 items-center justify-center" onClick={() => setSelectedLevel('all')}><X className="h-3 w-3" /></button>
               </span>
             )}
             {selectedCategory !== 'all' && (
               <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs">
                 {selectedCategory}
-                <button onClick={() => setSelectedCategory('all')}><X className="h-3 w-3" /></button>
+                <button type="button" aria-label="Clear category filter" className="inline-flex min-h-11 min-w-11 items-center justify-center" onClick={() => setSelectedCategory('all')}><X className="h-3 w-3" /></button>
               </span>
             )}
-            <button 
+            <button
+              type="button"
               onClick={clearAllFilters}
-              className="text-sm text-red-600 hover:text-red-700 ml-2"
+              className="min-h-11 px-2 text-sm text-red-600 hover:text-red-700"
             >
               Clear all
             </button>
@@ -414,6 +433,15 @@ export default function StudentCoursesPage() {
             Showing <span className="font-semibold">{filteredCourses.length}</span> courses
           </p>
         </div>
+
+        {loadError && (
+          <div className="mb-6 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between dark:border-red-900 dark:bg-red-950/30 dark:text-red-200" role="alert">
+            <p>Courses could not be loaded. Check your connection and try again.</p>
+            <Button variant="outline" onClick={() => fetchCourses(false)} disabled={loading} className="min-h-11">
+              {loading ? 'Retrying...' : 'Retry'}
+            </Button>
+          </div>
+        )}
 
         {/* Courses Grid */}
         {filteredCourses.length > 0 ? (
@@ -503,18 +531,26 @@ export default function StudentCoursesPage() {
                       )}
                       
                       <div className="flex flex-wrap gap-3 mb-4 text-xs">
-                        <span className="flex items-center gap-1">
-                          <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                          <span>{course.rating || 4.5}</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Users className="h-3.5 w-3.5 text-gray-400" />
-                          <span>{course.totalStudents || 0} students</span>
-                        </span>
+                        {course.rating != null && (
+                          <span className="flex items-center gap-1">
+                            <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                            <span>{course.rating}</span>
+                          </span>
+                        )}
+                        {course.totalStudents != null && (
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3.5 w-3.5 text-gray-400" />
+                            <span>{course.totalStudents} students</span>
+                          </span>
+                        )}
                         <span className="flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5 text-gray-400" />
-                          <span>{course.duration || 0} hours</span>
+                          <span>{course.duration ? `${course.duration} hours` : 'Duration not listed'}</span>
                         </span>
+                      </div>
+                      <div className="mb-3 space-y-1 text-xs text-muted-foreground">
+                        <p>Instructor: {course.instructorName || 'Not listed'}</p>
+                        <p>Certificate awarded on course completion</p>
                       </div>
                       
                       <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
@@ -573,12 +609,19 @@ export default function StudentCoursesPage() {
                 No courses found
               </h3>
               <p className={`text-sm mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                Try adjusting your search or filters to find what you're looking for
+                Try adjusting your search or filters. If you are searching by name, load more courses to check the rest of the catalogue.
               </p>
               {(searchTerm || selectedLevel !== 'all' || selectedCategory !== 'all') && (
-                <Button variant="outline" onClick={clearAllFilters}>
-                  Clear all filters
-                </Button>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <Button variant="outline" onClick={clearAllFilters} className="min-h-11">
+                    Clear all filters
+                  </Button>
+                  {hasMore && (
+                    <Button onClick={() => fetchCourses(true)} disabled={loadingMore} className="min-h-11">
+                      {loadingMore ? 'Loading courses...' : 'Load more courses'}
+                    </Button>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>

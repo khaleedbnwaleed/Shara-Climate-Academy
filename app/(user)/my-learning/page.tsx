@@ -219,7 +219,7 @@ export default function MyLearningPage() {
                       <div className="flex flex-col md:flex-row">
                         <div className="md:w-48 h-32 bg-gray-100 dark:bg-gray-700 overflow-hidden">
                           <img
-                            src={course.imageUrl || 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06'}
+                            src={course.imageUrl || '/H2.webp'}
                             alt={course.title}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           />
@@ -297,7 +297,7 @@ export default function MyLearningPage() {
                   <div key={course.id} className={`group rounded-xl border overflow-hidden transition-all duration-300 hover:shadow-md ${isDarkMode ? 'bg-gray-800/50 border-gray-700 hover:bg-gray-800' : 'bg-white border-gray-100 hover:shadow-lg'}`}>
                     <div className="relative h-32 overflow-hidden">
                       <img
-                        src={course.imageUrl || 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06'}
+                        src={course.imageUrl || '/H2.webp'}
                         alt={course.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />

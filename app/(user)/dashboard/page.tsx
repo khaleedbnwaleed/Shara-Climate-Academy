@@ -13,7 +13,7 @@ import {
 import { 
   BookOpen, Award, Clock, TrendingUp, 
   Target, Activity, 
-  Flame, CheckCircle, Star,
+  CheckCircle, Star,
   RefreshCw, Sparkles, Crown
 } from 'lucide-react';
 import { useTheme } from '@/context/theme-context';
@@ -55,9 +55,7 @@ export default function DashboardPage() {
       // Get enrolled courses
       const enrolledCourses = user?.enrolledCourses || [];
       const coursesList: any[] = [];
-      let totalWatchTime = 0;
-      let totalProgressSum = 0;
-      let completedCount = 0;
+      let totalWatchTimeSeconds = 0;
       
       for (const courseId of enrolledCourses) {
         const courseRef = doc(db, 'courses', courseId);
@@ -80,20 +78,24 @@ export default function DashboardPage() {
           
           if (isCompleted) {
             progress = 100;
-            completedCount++;
-            totalWatchTime += lessonCount * 7; // 7 minutes per lesson
           } else {
             // Get progress from localStorage
-            const savedProgress = localStorage.getItem(`completed_lessons_${user?.uid}_${courseId}`);
+            const savedProgress =
+              localStorage.getItem(`completed_lessons_${user?.uid}_${courseId}`) ||
+              localStorage.getItem(`completed_${user?.uid}_${courseId}`);
             if (savedProgress) {
               const completed = JSON.parse(savedProgress);
               completedLessonsCount = completed.length;
               progress = lessonCount > 0 ? Math.round((completed.length / lessonCount) * 100) : 0;
-              totalWatchTime += Math.floor((progress / 100) * lessonCount * 7);
             }
           }
-          
-          totalProgressSum += progress;
+
+          for (let index = 0; index < localStorage.length; index++) {
+            const key = localStorage.key(index);
+            if (key?.startsWith(`watch_${user?.uid}_${courseId}_`)) {
+              totalWatchTimeSeconds += Number(localStorage.getItem(key) || 0);
+            }
+          }
           
           coursesList.push({
             id: courseId,
@@ -102,7 +104,7 @@ export default function DashboardPage() {
             imageUrl: courseData.imageUrl,
             duration: courseData.duration || 0,
             instructorName: courseData.instructorName,
-            rating: courseData.rating || 4.5,
+            rating: courseData.rating,
             lessonCount: lessonCount,
             progress: progress,
             isCompleted: isCompleted,
@@ -112,7 +114,7 @@ export default function DashboardPage() {
       }
       
       setEnrolledCoursesData(coursesList);
-      setTotalWatchMinutes(totalWatchTime);
+      setTotalWatchMinutes(Math.floor(totalWatchTimeSeconds / 60));
       
       // Update last sync time
       const now = new Date();
@@ -139,8 +141,7 @@ export default function DashboardPage() {
   const avgProgress = enrolledCount > 0 
     ? Math.round(enrolledCoursesData.reduce((sum, c) => sum + c.progress, 0) / enrolledCount)
     : 0;
-  const totalHours = Math.floor(totalWatchMinutes / 60);
-  const engagementRate = enrolledCount > 0 
+  const completionRate = enrolledCount > 0
     ? Math.round((completedCount / enrolledCount) * 100)
     : 0;
 
@@ -233,7 +234,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <StatCard icon={BookOpen} label="Enrolled" value={enrolledCount} color="green" />
           <StatCard icon={Award} label="Completed" value={completedCount} color="blue" />
-          <StatCard icon={Clock} label="Hours Watched" value={totalHours} color="purple" />
+          <StatCard icon={Clock} label="Watch Time Logged" value={`${totalWatchMinutes} min`} color="purple" />
           <StatCard icon={TrendingUp} label="Avg Progress" value={`${avgProgress}%`} color="orange" />
         </div>
 
@@ -241,35 +242,33 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <MetricCard 
             icon={Target} 
-            label="Completion Rate" 
-            value={`${avgProgress}%`} 
-            progress={avgProgress} 
+            label="Courses Completed"
+            value={`${completionRate}%`}
+            progress={completionRate}
             color="green" 
           />
           <MetricCard 
-            icon={Activity} 
-            label="Engagement" 
-            value={`${engagementRate}%`} 
-            progress={engagementRate} 
+            icon={TrendingUp}
+            label="Average Course Progress"
+            value={`${avgProgress}%`}
+            progress={avgProgress}
             color="blue" 
           />
           <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-100'}`}>
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30">
-                <Flame className="h-5 w-5 text-orange-600" />
+                <Activity className="h-5 w-5 text-orange-600" />
               </div>
               <div className="flex-1">
-                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Learning Streak</p>
-                <p className={`text-xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  {completedCount > 0 ? `${completedCount} day${completedCount > 1 ? 's' : ''}` : '0 days'}
-                </p>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Courses In Progress</p>
+                <p className={`text-xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{inProgressCount}</p>
               </div>
             </div>
             <div className="mt-3">
               <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div className="h-full bg-orange-600 rounded-full" style={{ width: `${Math.min(completedCount * 20, 100)}%` }}></div>
               </div>
-              <p className="text-xs text-gray-500 mt-2">Complete courses to increase your streak!</p>
+              <p className="text-xs text-gray-500 mt-2">Pick up a course to keep learning.</p>
             </div>
           </div>
         </div>
@@ -291,7 +290,7 @@ export default function DashboardPage() {
                     <div className="flex flex-col sm:flex-row">
                       <div className="sm:w-32 w-full h-28 sm:h-24 bg-gray-100 dark:bg-gray-700 overflow-hidden">
                         <img
-                          src={course.imageUrl || 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06'}
+                          src={course.imageUrl || '/H2.webp'}
                           alt={course.title}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
@@ -305,7 +304,7 @@ export default function DashboardPage() {
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1">
                               <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                              <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{course.rating}</span>
+                              <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{course.rating ?? 'Not rated'}</span>
                             </div>
                             <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>•</span>
                             <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{course.lessonCount} lessons</span>

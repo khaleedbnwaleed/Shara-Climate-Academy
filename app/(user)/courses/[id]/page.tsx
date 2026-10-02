@@ -89,15 +89,6 @@ export default function CourseDetailsPage() {
   };
 
   useEffect(() => {
-    if (!document.querySelector('#youtube-api')) {
-      const tag = document.createElement('script');
-      tag.id = 'youtube-api';
-      tag.src = 'https://www.youtube.com/iframe_api';
-      document.head.appendChild(tag);
-    }
-  }, []);
-
-  useEffect(() => {
     fetchCourseDetails();
     loadProgress();
     checkEnrollment();
@@ -124,6 +115,14 @@ export default function CourseDetailsPage() {
     
     if (currentLesson.isLocked) {
       return;
+    }
+
+    if (!document.querySelector('#youtube-api')) {
+      const tag = document.createElement('script');
+      tag.id = 'youtube-api';
+      tag.src = 'https://www.youtube.com/iframe_api';
+      tag.async = true;
+      document.head.appendChild(tag);
     }
     
     const videoId = extractYouTubeId(currentLesson.url || '');
@@ -356,12 +355,14 @@ export default function CourseDetailsPage() {
   };
 
   const loadProgress = () => {
-    const saved = localStorage.getItem(`completed_${user?.uid}_${courseId}`);
+    const saved =
+      localStorage.getItem(`completed_lessons_${user?.uid}_${courseId}`) ||
+      localStorage.getItem(`completed_${user?.uid}_${courseId}`);
     if (saved) setCompletedLessons(JSON.parse(saved));
   };
 
   const saveProgress = (list: string[]) => {
-    localStorage.setItem(`completed_${user?.uid}_${courseId}`, JSON.stringify(list));
+    localStorage.setItem(`completed_lessons_${user?.uid}_${courseId}`, JSON.stringify(list));
     setCompletedLessons(list);
     setLessons(prev => prev.map(lesson => ({ ...lesson, completed: list.includes(lesson.id) })));
   };

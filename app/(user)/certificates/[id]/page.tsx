@@ -95,6 +95,12 @@ export default function IndividualCertificatePage() {
       const courseSnap = await getDoc(courseRef);
       
       if (courseSnap.exists()) {
+        if (!user.completedCourses?.includes(certIdParam)) {
+          setError(true);
+          setLoading(false);
+          return;
+        }
+
         // This is a course ID - generate certificate from course data
         const courseData = { id: courseSnap.id, ...courseSnap.data() };
         setCourse(courseData);
@@ -139,6 +145,12 @@ export default function IndividualCertificatePage() {
       }
       
       if (foundCertData) {
+        if (!foundCertData.courseId || !user.completedCourses?.includes(foundCertData.courseId)) {
+          setError(true);
+          setLoading(false);
+          return;
+        }
+
         setCertificateData(foundCertData);
         // Fetch course details
         const courseRef2 = doc(db, 'courses', foundCertData.courseId);

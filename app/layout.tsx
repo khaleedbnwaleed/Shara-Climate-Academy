@@ -1,13 +1,9 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/react'
 import { AuthProvider } from '@/context/auth-context'
 import { ThemeProvider } from '@/context/theme-context'
 import RemoveExtensionAttributes from '@/components/remove-extension-attrs'
 import './globals.css'
-
-const geist = Geist({ subsets: ['latin'] })
-const geistMono = Geist_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Shara Climate Academy | Learn Climate Action',
@@ -30,7 +26,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="scroll-smooth" suppressHydrationWarning>
+    <html
+      lang="en"
+      className="scroll-smooth"
+      suppressHydrationWarning
+    >
       <body
         suppressHydrationWarning
         className="font-sans antialiased"
