@@ -453,7 +453,11 @@ export default function CourseDetailsPage() {
       const certificateId = `${courseId.slice(0, 8)}-${user.uid.slice(0, 8)}`;
       
       localStorage.setItem(`certificate_${user.uid}_${courseId}`, JSON.stringify({
-        courseId, courseTitle: course?.title, completedDate: completionDate, certificateId
+        courseId,
+        courseTitle: course?.title,
+        studentName: user.name,
+        completedDate: completionDate,
+        certificateId,
       }));
       
       setShowCertificate(true);

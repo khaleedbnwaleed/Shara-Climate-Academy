@@ -194,6 +194,7 @@ export default function CertificatesPage() {
         const certData = {
           courseId: cert.id,
           courseTitle: cert.title,
+          studentName: user.name,
           completedDate: cert.completedDate || new Date().toLocaleDateString('en-US', { 
             year: 'numeric', 
             month: 'long', 

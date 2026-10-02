@@ -146,17 +146,69 @@ export default function Home() {
   }
 
   const handleCertificateSearch = async () => {
-    if (!certificateId.trim()) {
+    const enteredId = certificateId.trim()
+    if (!enteredId) {
       setSearchResult({ found: false, message: 'Please enter a certificate ID' })
       return
     }
 
     setSearching(true)
-    setSearchResult({
-      found: false,
-      message: 'Online certificate verification is unavailable. No validity claim has been made. Please contact Shara Climate Academy to confirm this certificate.',
-    })
-    setSearching(false)
+    setSearchResult(null)
+
+    try {
+      const normalizeId = (value: string) => value.trim().replace(/-/g, '')
+      const requestedId = normalizeId(enteredId)
+      let matchedCertificate: Record<string, string> | null = null
+      let matchedOwnerId: string | null = null
+      let matchedKey: string | null = null
+
+      for (let index = 0; index < localStorage.length; index++) {
+        const key = localStorage.key(index)
+        if (!key?.startsWith('certificate_')) continue
+
+        try {
+          const data = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, string>
+          if (typeof data.certificateId === 'string' && normalizeId(data.certificateId) === requestedId) {
+            matchedCertificate = data
+            matchedOwnerId = key.slice('certificate_'.length).split('_')[0] || null
+            matchedKey = key
+            break
+          }
+        } catch (error) {
+          console.error('Unable to read a saved certificate record:', error)
+        }
+      }
+
+      if (matchedCertificate) {
+        let studentName = matchedCertificate.studentName || matchedCertificate.userName
+
+        if (!studentName && matchedOwnerId === user?.uid) {
+          studentName = user.name
+        }
+
+        if (studentName && matchedKey && !matchedCertificate.studentName) {
+          matchedCertificate.studentName = studentName
+          localStorage.setItem(matchedKey, JSON.stringify(matchedCertificate))
+        }
+
+        setSearchResult({
+          found: true,
+          name: studentName || 'Name unavailable',
+          course: matchedCertificate.courseTitle || matchedCertificate.courseName || 'Course title not recorded',
+          date: matchedCertificate.completedDate || matchedCertificate.completionDate || 'Completion date not recorded',
+        })
+      } else {
+        setSearchResult({
+          found: false,
+          message: 'No matching certificate record was found in this browser. Certificates stored on another device cannot be checked online yet.',
+        })
+      }
+    } catch (error) {
+      console.error('Error checking saved certificates:', error)
+      setSearchResult({ found: false, message: 'Unable to read saved certificate records in this browser.' })
+    } finally {
+      setSearching(false)
+    }
   }
 
   return (
@@ -191,6 +243,9 @@ export default function Home() {
             <button type="button" onClick={() => scrollToSection('impact')} className="text-sm font-medium text-foreground/80 transition-colors hover:text-primary">
               Impact
             </button>
+            <button type="button" onClick={() => scrollToSection('certificate-verification')} className="text-sm font-medium text-foreground/80 transition-colors hover:text-primary">
+              Verify certificate
+            </button>
             <button type="button" onClick={() => scrollToSection('contact')} className="text-sm font-medium text-foreground/80 transition-colors hover:text-primary">
               Contact
             </button>
@@ -223,14 +278,20 @@ export default function Home() {
         {isMenuOpen ? (
           <div className="border-t border-border bg-card md:hidden">
             <div className="container-shell space-y-2 py-4">
-              {['courses', 'about', 'impact', 'contact'].map((section) => (
+              {[
+                { label: 'Courses', section: 'courses' },
+                { label: 'About', section: 'about' },
+                { label: 'Impact', section: 'impact' },
+                { label: 'Verify certificate', section: 'certificate-verification' },
+                { label: 'Contact', section: 'contact' },
+              ].map(({ label, section }) => (
                 <button
                   key={section}
                   type="button"
                   onClick={() => scrollToSection(section)}
                   className="block w-full rounded-2xl px-4 py-3 text-left text-sm font-medium text-foreground/80 transition-colors hover:bg-muted"
                 >
-                  {section.charAt(0).toUpperCase() + section.slice(1)}
+                  {label}
                 </button>
               ))}
               <div className="grid gap-2 pt-3">
@@ -459,13 +520,13 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="py-20 md:py-24">
+        <section id="certificate-verification" className="py-20 md:py-24">
           <div className="container-shell grid gap-8 border-y border-border py-10 lg:grid-cols-[1fr_0.9fr] lg:items-center">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">Certificate verification</p>
                 <h2 className="mt-3 max-w-xl font-display text-4xl leading-tight text-foreground sm:text-5xl">Confirm a Shara learner’s achievement.</h2>
                 <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">
-                  Enter the certificate ID to check course completion and learner details.
+                  Enter a certificate ID to look up the learner and course details.
                 </p>
               </div>
 
@@ -490,7 +551,7 @@ export default function Home() {
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 text-[#1d7555] dark:text-[#8ed4a9]">
                           <CheckCircle className="h-5 w-5" />
-                          <span className="font-semibold">Certificate verified</span>
+                          <span className="font-semibold">Certificate record found</span>
                         </div>
                         <p className="text-base text-foreground"><span className="font-semibold">Name:</span> {searchResult.name}</p>
                         <p className="text-base text-foreground"><span className="font-semibold">Course:</span> {searchResult.course}</p>
@@ -498,7 +559,7 @@ export default function Home() {
                       </div>
                     ) : (
                       <div className="space-y-2" role="status" aria-live="polite">
-                        <p className="font-semibold text-foreground">Verification unavailable</p>
+                        <p className="font-semibold text-foreground">No local certificate match</p>
                         <p className="text-sm leading-6 text-foreground">{searchResult.message}</p>
                       </div>
                     )}

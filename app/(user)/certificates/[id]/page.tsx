@@ -120,6 +120,7 @@ export default function IndividualCertificatePage() {
           const newCertData = {
             courseId: courseData.id,
             courseTitle: courseData.title,
+            studentName: user.name,
             completedDate: completionDate,
             certificateId: certificateId,
             completedAt: new Date().toISOString()
