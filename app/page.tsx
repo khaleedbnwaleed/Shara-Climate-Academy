@@ -292,9 +292,9 @@ export default function Home() {
         <section className="border-y border-border bg-[#173f30] py-7 text-white">
           <div className="container-shell grid grid-cols-2 gap-y-6 md:grid-cols-4 md:gap-4">
             {[
-              ['10,000+', 'Learners worldwide'],
-              ['50+', 'Courses'],
-              ['30+', 'Countries'],
+              ['50+', 'Learners worldwide'],
+              ['10+', 'Courses'],
+              ['2', 'Countries'],
               ['100%', 'Expert-led'],
             ].map(([value, label]) => (
               <div key={label} className="border-l border-white/25 pl-4 md:pl-6">
