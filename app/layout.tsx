@@ -11,12 +11,8 @@ export const metadata: Metadata = {
     'Shara Climate Academy equips individuals and organisations worldwide with the knowledge and skills to tackle the climate crisis — at their own pace, online.',
   generator: 'v0.app',
   icons: {
-    icon: [
-      { url: '/icon-light-32x32.png', media: '(prefers-color-scheme: light)' },
-      { url: '/icon-dark-32x32.png', media: '(prefers-color-scheme: dark)' },
-      { url: '/icon.svg', type: 'image/svg+xml' },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/Logo.png',
+    apple: '/Logo.png',
   },
 }
 
