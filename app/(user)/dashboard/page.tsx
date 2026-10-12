@@ -17,6 +17,7 @@ import {
   RefreshCw, Sparkles, Crown
 } from 'lucide-react';
 import { useTheme } from '@/context/theme-context';
+import ClimateTutor from '@/components/climate-tutor/ClimateTutor';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -400,6 +401,11 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {/* AI Climate Tutor (N-ATLAS) */}
+        <div className="mt-6">
+          <ClimateTutor />
+        </div>
       </div>
     </div>
   );
