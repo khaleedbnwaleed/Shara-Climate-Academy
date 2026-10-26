@@ -15,6 +15,16 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { useTheme } from '@/context/theme-context';
 import Link from 'next/link';
+import { auth } from '@/lib/firebase';
+
+type ScormReportRow = {
+  learner: string
+  completion: string
+  success: string
+  score: number | null
+  totalSecondsTracked: number
+  updated: string | null
+}
 
 export default function CourseManagePage() {
   const params = useParams();
@@ -37,12 +47,22 @@ export default function CourseManagePage() {
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [studentCount, setStudentCount] = useState(0);
+  const [scormFile, setScormFile] = useState<File | null>(null);
+  const [scormPackageUrl, setScormPackageUrl] = useState('');
+  const [scormUploading, setScormUploading] = useState(false);
+  const [scormImportStatus, setScormImportStatus] = useState<string | null>(null);
+  const [scormReport, setScormReport] = useState<ScormReportRow[]>([]);
+  const [scormReportLoading, setScormReportLoading] = useState(false);
 
   useEffect(() => {
     fetchCourseData();
     fetchLessons();
     fetchStudents();
   }, [courseId]);
+
+  useEffect(() => {
+    if (course?.scormEnabled) fetchScormReport();
+  }, [course?.scormEnabled, courseId]);
 
   const showNotification = (type: 'success' | 'error', message: string) => {
     setNotification({ type, message });
@@ -151,6 +171,99 @@ export default function CourseManagePage() {
     }
   };
 
+  const getScormToken = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) throw new Error('Please sign in again before managing SCORM content.');
+    return currentUser.getIdToken();
+  };
+
+  const handleScormImport = async () => {
+    if (!scormFile && !scormPackageUrl.trim()) {
+      showNotification('error', 'Choose a SCORM ZIP file or enter an approved hosted ZIP URL.');
+      return;
+    }
+    if (scormFile && scormPackageUrl.trim()) {
+      showNotification('error', 'Choose either a ZIP upload or a hosted URL, not both.');
+      return;
+    }
+
+    setScormUploading(true);
+    try {
+      const formData = new FormData();
+      formData.set('courseId', courseId);
+      if (scormFile) formData.set('file', scormFile);
+      else formData.set('packageUrl', scormPackageUrl.trim());
+
+      const response = await fetch('/api/scorm/import', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await getScormToken()}` },
+        body: formData,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to start SCORM import.');
+
+      setScormImportStatus(result.status);
+      setCourse((previous: any) => ({
+        ...previous,
+        scormImportStatus: result.status,
+        scormImportJobId: result.jobId,
+        scormEnabled: false,
+      }));
+      setScormFile(null);
+      setScormPackageUrl('');
+      showNotification('success', 'SCORM import started. You can monitor its status below.');
+    } catch (error) {
+      showNotification('error', error instanceof Error ? error.message : 'Unable to start SCORM import.');
+    } finally {
+      setScormUploading(false);
+    }
+  };
+
+  const checkScormImportStatus = async () => {
+    try {
+      const response = await fetch(`/api/scorm/import?courseId=${encodeURIComponent(courseId)}`, {
+        headers: { Authorization: `Bearer ${await getScormToken()}` },
+        cache: 'no-store',
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to check SCORM import status.');
+
+      setScormImportStatus(result.status);
+      setCourse((previous: any) => ({
+        ...previous,
+        scormImportStatus: result.status,
+        scormCourseTitle: result.courseTitle || previous?.scormCourseTitle,
+        scormEnabled: result.status === 'COMPLETE',
+      }));
+      if (result.status === 'COMPLETE') {
+        showNotification('success', 'SCORM course imported and ready for learners.');
+      } else if (result.status === 'ERROR') {
+        showNotification('error', result.message || 'SCORM Cloud could not import this package.');
+      } else {
+        showNotification('success', result.message || 'SCORM import is still running.');
+      }
+    } catch (error) {
+      showNotification('error', error instanceof Error ? error.message : 'Unable to check SCORM import status.');
+    }
+  };
+
+  const fetchScormReport = async () => {
+    setScormReportLoading(true);
+    try {
+      const response = await fetch(`/api/scorm/report?courseId=${encodeURIComponent(courseId)}`, {
+        headers: { Authorization: `Bearer ${await getScormToken()}` },
+        cache: 'no-store',
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to load SCORM results.');
+      setScormReport(result.registrations || []);
+    } catch (error) {
+      showNotification('error', error instanceof Error ? error.message : 'Unable to load SCORM results.');
+    } finally {
+      setScormReportLoading(false);
+    }
+  };
+
   const getContentIcon = (type: string) => {
     switch(type) {
       case 'video': return <Video className="h-4 w-4 text-blue-500" />;
@@ -222,6 +335,122 @@ export default function CourseManagePage() {
           <p className="text-xs text-gray-500">Price</p>
         </Card>
       </div>
+
+      <Card className={`p-5 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+              SCORM Cloud package
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-gray-500">
+              Import a SCORM 1.2 or SCORM 2004 ZIP through SCORM Cloud. Learner registrations and scores are managed by SCORM Cloud and shown below.
+            </p>
+            {course.scormEnabled ? (
+              <p className="mt-2 text-sm font-medium text-green-700">
+                Ready: {course.scormCourseTitle || 'SCORM package'} · learners can launch this course module.
+              </p>
+            ) : course.scormImportJobId ? (
+              <p className="mt-2 text-sm text-amber-700">
+                Import status: {scormImportStatus || course.scormImportStatus || 'RUNNING'}
+              </p>
+            ) : null}
+          </div>
+          {course.scormImportJobId && !course.scormEnabled ? (
+            <Button variant="outline" onClick={checkScormImportStatus} className="shrink-0">
+              Check import status
+            </Button>
+          ) : null}
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
+          <div className="space-y-3">
+            <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`} htmlFor="scorm-package">
+              Upload package ZIP (maximum 4 MB)
+            </label>
+            <input
+              id="scorm-package"
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(event) => {
+                setScormFile(event.target.files?.[0] || null);
+                setScormPackageUrl('');
+              }}
+              className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-green-50 file:px-4 file:py-2 file:font-medium file:text-green-700"
+            />
+            <div className="text-center text-xs text-gray-400">or</div>
+            <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`} htmlFor="scorm-package-url">
+              Hosted ZIP URL (HTTPS, administrator-approved domain)
+            </label>
+            <Input
+              id="scorm-package-url"
+              type="url"
+              placeholder="https://approved-host.example/course.zip"
+              value={scormPackageUrl}
+              onChange={(event) => {
+                setScormPackageUrl(event.target.value);
+                if (event.target.value) setScormFile(null);
+              }}
+              disabled={!!scormFile}
+            />
+            <p className="text-xs leading-5 text-gray-500">
+              Hosted packages are fetched by SCORM Cloud. The allowed host must be configured by the site administrator.
+            </p>
+          </div>
+          <div className="flex items-end">
+            <Button onClick={handleScormImport} disabled={scormUploading} className="w-full bg-green-700 hover:bg-green-800 md:w-auto">
+              {scormUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              {scormUploading ? 'Starting import...' : course.scormEnabled ? 'Import new version' : 'Import SCORM ZIP'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {course.scormEnabled ? (
+        <Card className={`p-5 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>SCORM learner results</h2>
+              <p className="mt-1 text-sm text-gray-500">Results refresh from SCORM Cloud when you load or refresh this report.</p>
+            </div>
+            <Button variant="outline" onClick={fetchScormReport} disabled={scormReportLoading}>
+              {scormReportLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Refresh results
+            </Button>
+          </div>
+          {scormReportLoading && scormReport.length === 0 ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-green-700" /></div>
+          ) : scormReport.length > 0 ? (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="border-b text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="px-3 py-3">Learner</th>
+                    <th className="px-3 py-3">Completion</th>
+                    <th className="px-3 py-3">Result</th>
+                    <th className="px-3 py-3">Score</th>
+                    <th className="px-3 py-3">Time tracked</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scormReport.map((result, index) => (
+                    <tr key={`${result.learner}-${index}`} className="border-b last:border-0">
+                      <td className={`px-3 py-3 font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{result.learner}</td>
+                      <td className="px-3 py-3">{result.completion}</td>
+                      <td className="px-3 py-3">{result.success}</td>
+                      <td className="px-3 py-3">{result.score === null ? '—' : `${result.score}%`}</td>
+                      <td className="px-3 py-3">{Math.floor((result.totalSecondsTracked || 0) / 60)} min</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-5 rounded-lg bg-gray-50 p-4 text-sm text-gray-500 dark:bg-gray-700">
+              No SCORM learner registrations yet. Learners must be enrolled and launch the module before results appear.
+            </p>
+          )}
+        </Card>
+      ) : null}
 
       {/* Add Lesson Button */}
       <div className="flex justify-between items-center">

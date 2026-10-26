@@ -14,9 +14,21 @@ import {
   Lock, AlertTriangle, RotateCcw
 } from 'lucide-react';
 import { db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, collection, getDocs, setDoc, query, where, orderBy } from 'firebase/firestore';
 import { useTheme } from '@/context/theme-context';
 import { initializePaystackPayment } from '@/lib/paystack';
+
+type ScormProgressResult = {
+  started: boolean
+  completion: string
+  completionAmount: number | null
+  success: string
+  score: number | null
+  totalSecondsTracked: number
+  updated: string | null
+  completedDate: string | null
+}
 
 declare global {
   interface Window {
@@ -57,6 +69,11 @@ export default function CourseDetailsPage() {
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [scormLaunchUrl, setScormLaunchUrl] = useState('');
+  const [scormLaunching, setScormLaunching] = useState(false);
+  const [scormProgress, setScormProgress] = useState<ScormProgressResult | null>(null);
+  const [scormProgressLoading, setScormProgressLoading] = useState(false);
+  const [scormError, setScormError] = useState('');
   
   const [currentLessonProgress, setCurrentLessonProgress] = useState(0);
   const [totalWatchTime, setTotalWatchTime] = useState(0);
@@ -95,6 +112,10 @@ export default function CourseDetailsPage() {
     loadAchievements();
     loadTotalWatchTime();
   }, [courseId]);
+
+  useEffect(() => {
+    if (isEnrolled && course?.scormEnabled) refreshScormProgress();
+  }, [isEnrolled, course?.scormEnabled, courseId]);
 
   useEffect(() => {
     if (isEnrolled && course) fetchLessons();
@@ -301,6 +322,51 @@ export default function CourseDetailsPage() {
 
   const checkEnrollment = () => {
     setIsEnrolled(user?.enrolledCourses?.includes(courseId) || false);
+  };
+
+  const getScormToken = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) throw new Error('Please sign in again to access this SCORM course.');
+    return currentUser.getIdToken();
+  };
+
+  const launchScormCourse = async () => {
+    setScormLaunching(true);
+    try {
+      const response = await fetch('/api/scorm/launch', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${await getScormToken()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ courseId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to launch the SCORM course.');
+      setScormLaunchUrl(result.launchLink);
+    } catch (error) {
+      setScormError(error instanceof Error ? error.message : 'Unable to launch the SCORM course.');
+    } finally {
+      setScormLaunching(false);
+    }
+  };
+
+  const refreshScormProgress = async () => {
+    setScormProgressLoading(true);
+    setScormError('');
+    try {
+      const response = await fetch(`/api/scorm/progress?courseId=${encodeURIComponent(courseId)}`, {
+        headers: { Authorization: `Bearer ${await getScormToken()}` },
+        cache: 'no-store',
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to refresh SCORM progress.');
+      setScormProgress(result);
+    } catch (error) {
+      setScormError(error instanceof Error ? error.message : 'Unable to refresh SCORM progress.');
+    } finally {
+      setScormProgressLoading(false);
+    }
   };
 
   const fetchCourseDetails = async () => {
@@ -898,6 +964,66 @@ export default function CourseDetailsPage() {
                   <div className="flex items-center gap-2 text-sm"><Users className="h-4 w-4 text-green-600" /> {course.totalStudents || 0} students</div>
                   <div className="flex items-center gap-2 text-sm"><Star className="h-4 w-4 fill-yellow-400 text-yellow-400" /> {course.rating || 4.5} rating</div>
                 </div>
+                {isEnrolled && course.scormEnabled ? (
+                  <section className="rounded-xl border border-green-200 bg-green-50 p-5 dark:border-green-900 dark:bg-green-900/20">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                          SCORM course module
+                        </h2>
+                        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                          {course.scormCourseTitle || 'Launch the interactive course package hosted by SCORM Cloud.'}
+                        </p>
+                        {scormProgress ? (
+                          <p className="mt-2 text-sm font-medium text-green-800 dark:text-green-300" aria-live="polite">
+                            Status: {scormProgress.completion}
+                            {scormProgress.score !== null ? ` · Score: ${scormProgress.score}%` : ''}
+                            {scormProgress.success && scormProgress.success !== 'UNKNOWN'
+                              ? ` · Result: ${scormProgress.success}`
+                              : ''}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <Button onClick={launchScormCourse} disabled={scormLaunching} className="bg-green-700 hover:bg-green-800">
+                          {scormLaunching ? 'Preparing...' : 'Launch SCORM course'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={refreshScormProgress}
+                          disabled={scormProgressLoading}
+                        >
+                          {scormProgressLoading ? 'Refreshing...' : 'Refresh progress'}
+                        </Button>
+                      </div>
+                    </div>
+                    {scormError ? (
+                      <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
+                        {scormError}
+                      </p>
+                    ) : null}
+                    {scormLaunchUrl ? (
+                      <div className="mt-5">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <p className="text-sm text-gray-600 dark:text-gray-300">
+                            When you exit the SCORM player, return here and refresh your progress.
+                          </p>
+                          <Button variant="outline" size="sm" onClick={() => setScormLaunchUrl('')}>
+                            Close player
+                          </Button>
+                        </div>
+                        <iframe
+                          title={`SCORM course: ${course.scormCourseTitle || course.title}`}
+                          src={scormLaunchUrl}
+                          referrerPolicy="strict-origin-when-cross-origin"
+                          allow="fullscreen; autoplay"
+                          allowFullScreen
+                          className="h-[70vh] min-h-[480px] w-full rounded-xl border bg-white"
+                        />
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
               </div>
             )}
 

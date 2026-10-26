@@ -119,6 +119,7 @@ export default function LecturerCoursesPage() {
         price: formData.price,
         imageUrl,
         instructorName,
+        instructorUid: user?.uid,
         rating: 4.5,
         totalStudents: 0,
         isPublished: true,
