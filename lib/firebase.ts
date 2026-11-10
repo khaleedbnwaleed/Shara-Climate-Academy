@@ -1,29 +1,31 @@
-﻿import { initializeApp, getApps, getApp } from "firebase/app";
-import { 
-  getAuth, 
-  setPersistence, 
-  browserLocalPersistence 
-} from "firebase/auth";
-import { getFirestore, initializeFirestore, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
+﻿import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getAuth,
+  setPersistence,
+  browserLocalPersistence,
+} from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyAeam1INMwXesDegwWiDef8u78dunhWHiY",
-  authDomain: "shara-climate-ad59c.firebaseapp.com",
-  projectId: "shara-climate-ad59c",
-  storageBucket: "shara-climate-ad59c.firebasestorage.app",
-  messagingSenderId: "577674492589",
-  appId: "1:577674492589:web:d1f8dc1932c517e6536424"
+  apiKey: 'AIzaSyAeam1INMwXesDegwWiDef8u78dunhWHiY',
+  authDomain: 'shara-climate-ad59c.firebaseapp.com',
+  projectId: 'shara-climate-ad59c',
+  storageBucket: 'shara-climate-ad59c.firebasestorage.app',
+  messagingSenderId: '577674492589',
+  appId: '1:577674492589:web:d1f8dc1932c517e6536424',
 };
 
-// Initialize app only once
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// Initialize Firebase only once
+const app = getApps().length === 0
+  ? initializeApp(firebaseConfig)
+  : getApp();
 
-//  Create auth instance
+// Initialize Authentication
 const auth = getAuth(app);
 
-//  Set persistence IMMEDIATELY and wait for it
+// Configure local authentication persistence in the browser
 let persistenceReady = false;
 let persistencePromise: Promise<void> | null = null;
 
@@ -33,29 +35,24 @@ if (typeof window !== 'undefined') {
       persistenceReady = true;
       console.log('Firebase auth persistence set to LOCAL');
     })
-    .catch((error) => {
-      console.error(' Error setting auth persistence:', error);
+    .catch((error: unknown) => {
+      console.error('Error setting auth persistence:', error);
     });
 }
 
-// Initialize Firestore with cache settings (only once)
-let db;
-if (typeof window !== 'undefined') {
-  try {
-    db = initializeFirestore(app, {
-      cache: {
-        sizeBytes: CACHE_SIZE_UNLIMITED
-      }
-    });
-  } catch (error) {
-    db = getFirestore(app);
-  }
-} else {
-  db = getFirestore(app);
-}
+// Initialize Firestore with its default cache configuration
+const db: Firestore = getFirestore(app);
 
+// Initialize Firebase Storage
 const storage = getStorage(app);
 
-//  Export persistence ready state for auth context
-export { app, auth, db, storage, persistenceReady, persistencePromise };
+export {
+  app,
+  auth,
+  db,
+  storage,
+  persistenceReady,
+  persistencePromise,
+};
+
 export default app;

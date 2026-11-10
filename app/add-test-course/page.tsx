@@ -28,7 +28,9 @@ export default function AddTestCourse() {
       console.log('Course added:', docRef.id);
     } catch (error) {
       console.error('Error adding course:', error);
-      setStatus(`❌ Error: ${error.message}`);
+      setStatus(
+  `❌ Error: ${error instanceof Error ? error.message : String(error)}`
+);
     }
   };
 

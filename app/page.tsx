@@ -452,7 +452,7 @@ export default function Home() {
                   </div>
                   <div>
                     <p className="font-semibold text-foreground text-sm md:text-base">{testimonial.name}</p>
-                    <p className="text-xs md:text-sm text-muted-foreground">{testimonial.country}</p>
+                    <p className="text-xs md:text-sm text-muted-foreground">{testimonial.state}</p>
                   </div>
                 </div>
               </div>

@@ -1,6 +1,13 @@
-﻿'use client';
+﻿
+'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
+
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -9,29 +16,52 @@ import {
   sendPasswordResetEmail,
   setPersistence,
   browserLocalPersistence,
+  type User,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+} from 'firebase/firestore';
+
 import { auth, db } from '@/lib/firebase';
 
-type AppUser = {
+export type AppUser = {
   uid: string;
   email: string | null;
   name: string;
   role: string;
   bio: string;
   avatar?: string;
+  displayName?: string;
+  location?: string;
+  website?: string;
+  linkedin?: string;
+  twitter?: string;
+  github?: string;
   enrolledCourses: string[];
   completedCourses?: string[];
   approved?: boolean;
   status?: string;
+  createdAt?: {
+    toDate?: () => Date;
+  } | null;
 };
 
 interface AuthContextType {
   user: AppUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string, role: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    name: string,
+    role: string
+  ) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   enrollCourse: (courseId: string) => Promise<void>;
@@ -40,112 +70,153 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
-    let unsubscribe: (() => void) | null = null;
+    let unsubscribe: (() => void) | undefined;
 
-    //  Step 1: Set persistence FIRST
-    setPersistence(auth, browserLocalPersistence)
-      .then(() => {
-        console.log(' Firebase auth persistence set to LOCAL');
-        
-        //  Step 2: Then check auth state
-        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-          if (!isMounted) return;
-          console.log(' Auth state changed:', firebaseUser?.email || 'No user');
-          
-          if (firebaseUser) {
-            try {
-              const userRef = doc(db, 'users', firebaseUser.uid);
-              const userSnap = await getDoc(userRef);
-              
-              if (userSnap.exists()) {
-                const userData = userSnap.data() as AppUser;
-                console.log(' User loaded:', userData.email, 'Role:', userData.role);
-                setUser(userData);
-              } else {
-                console.log(' Creating new user document');
-                const newUser: AppUser = {
-                  uid: firebaseUser.uid,
-                  email: firebaseUser.email,
-                  name: '',
-                  role: 'student',
-                  bio: '',
-                  avatar: '/default-avatar.png',
-                  enrolledCourses: [],
-                  completedCourses: [],
-                  approved: true,
-                  status: 'active',
-                };
-                await setDoc(userRef, newUser);
-                setUser(newUser);
-              }
-            } catch (error) {
-              console.error(' Error loading user:', error);
-            }
-          } else {
-            setUser(null);
+const handleAuthState = async (firebaseUser: User | null) => {
+      if (!isMounted) return;
+
+      if (!firebaseUser) {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (!isMounted) return;
+
+        if (userSnap.exists()) {
+          const userData = userSnap.data() as Partial<AppUser>;
+
+          setUser({
+            ...userData,
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: userData.name ?? userData.displayName ?? '',
+            role: userData.role ?? 'student',
+            bio: userData.bio ?? '',
+            enrolledCourses: userData.enrolledCourses ?? [],
+            completedCourses: userData.completedCourses ?? [],
+          });
+        } else {
+          const newUser: AppUser = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: firebaseUser.displayName ?? '',
+            role: 'student',
+            bio: '',
+            avatar: '/default-avatar.png',
+            enrolledCourses: [],
+            completedCourses: [],
+            approved: true,
+            status: 'active',
+          };
+
+          await setDoc(userRef, newUser);
+
+          if (isMounted) {
+            setUser(newUser);
           }
+        }
+      } catch (error) {
+        console.error('Error loading user:', error);
+      } finally {
+        if (isMounted) {
           setIsLoading(false);
-        });
-      })
-      .catch((error) => {
-        console.error(' Error setting persistence:', error);
-        // Still try to check auth state even if persistence fails
-        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-          if (!isMounted) return;
-          console.log(' Auth state changed (fallback):', firebaseUser?.email || 'No user');
-          // ... rest of auth state handling
-          setIsLoading(false);
-        });
+        }
+      }
+    };
+
+    const initializeAuth = async () => {
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+        console.log('Firebase auth persistence set to LOCAL');
+      } catch (error) {
+        console.error(
+          'Error setting auth persistence; continuing with current persistence:',
+          error
+        );
+      }
+
+      if (!isMounted) return;
+
+      unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+        void handleAuthState(firebaseUser);
       });
+    };
+
+    void initializeAuth();
 
     return () => {
       isMounted = false;
-      if (unsubscribe) unsubscribe();
+      unsubscribe?.();
     };
   }, []);
 
   const login = async (email: string, password: string) => {
-    console.log('🔑 Logging in:', email);
-    
-    //  Ensure persistence is set before login
     await setPersistence(auth, browserLocalPersistence);
-    
-    const result = await signInWithEmailAndPassword(auth, email, password);
-    
+
+    const result = await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+
     const userRef = doc(db, 'users', result.user.uid);
     const userSnap = await getDoc(userRef);
-    
+
     if (userSnap.exists()) {
       const userData = userSnap.data();
-      const needsApproval = userData.role === 'professional' || userData.role === 'lecturer';
+
+      const needsApproval =
+        userData.role === 'professional' ||
+        userData.role === 'lecturer';
+
       if (needsApproval && userData.approved !== true) {
         await signOut(auth);
-        throw new Error('Your account is pending admin approval.');
+        throw new Error(
+          'Your account is pending admin approval.'
+        );
       }
     }
-    console.log(' Login successful');
+
+    console.log('Login successful');
   };
 
-  const register = async (email: string, password: string, name: string, role: string) => {
-    console.log(' Registering:', email);
-    
-    //  Ensure persistence is set before registration
+  const register = async (
+    email: string,
+    password: string,
+    name: string,
+    role: string
+  ) => {
     await setPersistence(auth, browserLocalPersistence);
-    
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const needsApproval = role === 'professional' || role === 'lecturer';
-    
+
+    const userCredential = await createUserWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+
+    const needsApproval =
+      role === 'professional' || role === 'lecturer';
+
     const newUser: AppUser = {
       uid: userCredential.user.uid,
-      email: email,
-      name: name,
-      role: role,
+      email: userCredential.user.email,
+      name,
+      role,
       bio: '',
       avatar: '/default-avatar.png',
       enrolledCourses: [],
@@ -153,10 +224,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       approved: !needsApproval,
       status: needsApproval ? 'pending' : 'active',
     };
-    
-    await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
-    setUser(newUser);
-    console.log(' Registration successful');
+
+    try {
+      await setDoc(
+        doc(db, 'users', userCredential.user.uid),
+        newUser
+      );
+
+      setUser(newUser);
+      console.log('Registration successful');
+    } catch (error) {
+      // Avoid leaving a signed-in account if its user record
+      // could not be created.
+      await signOut(auth);
+      throw error;
+    }
   };
 
   const logout = async () => {
@@ -169,20 +251,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const enrollCourse = async (courseId: string) => {
-    if (!user) throw new Error('User not authenticated');
-    if (user.enrolledCourses?.includes(courseId)) return;
-    
-    const updatedEnrolledCourses = [...(user.enrolledCourses || []), courseId];
-    const userRef = doc(db, 'users', user.uid);
-    await updateDoc(userRef, { enrolledCourses: updatedEnrolledCourses });
-    setUser({ ...user, enrolledCourses: updatedEnrolledCourses });
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    if (user.enrolledCourses.includes(courseId)) {
+      return;
+    }
+
+    const updatedEnrolledCourses = [
+      ...user.enrolledCourses,
+      courseId,
+    ];
+
+    await updateDoc(doc(db, 'users', user.uid), {
+      enrolledCourses: updatedEnrolledCourses,
+    });
+
+    setUser({
+      ...user,
+      enrolledCourses: updatedEnrolledCourses,
+    });
   };
 
   const updateProfile = async (name: string, bio: string) => {
-    if (!user) throw new Error('User not authenticated');
-    const userRef = doc(db, 'users', user.uid);
-    await updateDoc(userRef, { name, bio });
-    setUser({ ...user, name, bio });
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    await updateDoc(doc(db, 'users', user.uid), {
+      name,
+      bio,
+    });
+
+    setUser({
+      ...user,
+      name,
+      bio,
+    });
   };
 
   return (
@@ -191,6 +297,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isAuthenticated: !!user,
         isLoading,
+        loading: isLoading,
         login,
         register,
         logout,
@@ -206,6 +313,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
+
+  if (!context) {
+    throw new Error(
+      'useAuth must be used within AuthProvider'
+    );
+  }
+
   return context;
 }

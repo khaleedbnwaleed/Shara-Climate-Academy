@@ -1,94 +1,150 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/auth-context';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { BookOpen, Award, Clock, ChevronRight, TrendingUp, Calendar, CheckCircle, Star } from 'lucide-react';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
+import {
+  BookOpen,
+  Award,
+  Clock,
+  ChevronRight,
+  TrendingUp,
+  CheckCircle,
+  Star,
+} from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  collection,
+  getDocs,
+  updateDoc,
+} from 'firebase/firestore';
 import { useTheme } from '@/context/theme-context';
+
+interface LearningCourse {
+  id: string;
+  title?: string;
+  imageUrl?: string;
+  instructorName?: string;
+  rating?: number;
+  duration?: number;
+  lessonCount?: number;
+  totalLessons: number;
+  [key: string]: unknown;
+}
 
 export default function MyLearningPage() {
   const { user } = useAuth();
   const { theme } = useTheme();
   const isDarkMode = theme === 'dark';
-  const [allEnrolledCourses, setAllEnrolledCourses] = useState<any[]>([]);
-  const [inProgressCourses, setInProgressCourses] = useState<any[]>([]);
-  const [completedCourses, setCompletedCourses] = useState<any[]>([]);
+
+  const [allEnrolledCourses, setAllEnrolledCourses] = useState<LearningCourse[]>([]);
+  const [inProgressCourses, setInProgressCourses] = useState<LearningCourse[]>([]);
+  const [completedCourses, setCompletedCourses] = useState<LearningCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [courseProgress, setCourseProgress] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (user?.enrolledCourses && user?.enrolledCourses.length > 0) {
-      fetchCourseDetails();
+    if (user?.enrolledCourses?.length) {
+      void fetchCourseDetails();
     } else {
+      setAllEnrolledCourses([]);
+      setInProgressCourses([]);
+      setCompletedCourses([]);
+      setCourseProgress({});
       setLoading(false);
     }
   }, [user]);
 
   const fetchCourseDetails = async () => {
+    setLoading(true);
+
     try {
-      // Fetch all enrolled courses from Firebase
-      const enrolledPromises = (user?.enrolledCourses || []).map(async (courseId: string) => {
-        const courseRef = doc(db, 'courses', courseId);
-        const courseSnap = await getDoc(courseRef);
-        if (courseSnap.exists()) {
-          // Get total lessons count
+      const enrolledPromises = (user?.enrolledCourses ?? []).map(
+        async (courseId: string): Promise<LearningCourse | null> => {
+          const courseRef = doc(db, 'courses', courseId);
+          const courseSnap = await getDoc(courseRef);
+
+          if (!courseSnap.exists()) {
+            return null;
+          }
+
           const lessonsRef = collection(db, 'courses', courseId, 'lessons');
           const lessonsSnapshot = await getDocs(lessonsRef);
           const totalLessons = lessonsSnapshot.size;
-          
-          return { 
-            id: courseSnap.id, 
-            ...courseSnap.data(),
-            totalLessons 
-          };
-        }
-        return null;
-      });
+          const courseData = courseSnap.data();
 
-      const enrolled = (await Promise.all(enrolledPromises)).filter(Boolean);
+          return {
+            ...courseData,
+            id: courseSnap.id,
+            totalLessons,
+          } as LearningCourse;
+        }
+      );
+
+      // Remove courses that no longer exist in Firestore.
+      const enrolledResults = await Promise.all(enrolledPromises);
+      const enrolled = enrolledResults.filter(
+        (course): course is LearningCourse => course !== null
+      );
+
       setAllEnrolledCourses(enrolled);
-      
-      // Calculate progress for each course based on localStorage AND Firestore completion
+
       const progressMap: Record<string, number> = {};
-      enrolled.forEach((course: any) => {
-        // Check if course is marked as completed in Firestore
-        const isCompletedInFirestore = user?.completedCourses?.includes(course.id);
-        
-        let progress = getProgressForCourse(course.id, course.totalLessons);
-        
-        // If course is marked completed in Firestore, force progress to 100%
+
+      enrolled.forEach((course) => {
+        const isCompletedInFirestore =
+          user?.completedCourses?.includes(course.id) ?? false;
+
+        let progress = getProgressForCourse(
+          course.id,
+          course.totalLessons
+        );
+
         if (isCompletedInFirestore) {
           progress = 100;
-          // Also update localStorage to match
-          const totalLessons = course.totalLessons;
-          const allLessons = Array.from({ length: totalLessons }, (_, i) => `lesson_${i}`);
-          localStorage.setItem(`completed_lessons_${user?.uid}_${course.id}`, JSON.stringify(allLessons));
+
+          const allLessons = Array.from(
+            { length: course.totalLessons },
+            (_, index) => `lesson_${index}`
+          );
+
+          localStorage.setItem(
+            `completed_lessons_${user?.uid}_${course.id}`,
+            JSON.stringify(allLessons)
+          );
         }
-        
+
         progressMap[course.id] = progress;
       });
+
       setCourseProgress(progressMap);
-      
-      // Split into in-progress and completed based on progress percentage OR Firestore completion
-      const inProgress = enrolled.filter(course => {
-        const isCompletedInFirestore = user?.completedCourses?.includes(course.id);
-        const progress = progressMap[course.id];
-        return !isCompletedInFirestore && progress < 100;
+
+      const inProgress = enrolled.filter((course) => {
+        const isCompletedInFirestore =
+          user?.completedCourses?.includes(course.id) ?? false;
+
+        return !isCompletedInFirestore && progressMap[course.id] < 100;
       });
-      const completed = enrolled.filter(course => {
-        const isCompletedInFirestore = user?.completedCourses?.includes(course.id);
-        const progress = progressMap[course.id];
-        return isCompletedInFirestore || progress === 100;
+
+      const completed = enrolled.filter((course) => {
+        const isCompletedInFirestore =
+          user?.completedCourses?.includes(course.id) ?? false;
+
+        return isCompletedInFirestore || progressMap[course.id] === 100;
       });
-      
+
       setInProgressCourses(inProgress);
       setCompletedCourses(completed);
-      
     } catch (error) {
       console.error('Error fetching course details:', error);
     } finally {
@@ -96,52 +152,77 @@ export default function MyLearningPage() {
     }
   };
 
-  const getProgressForCourse = (courseId: string, totalLessons: number) => {
-    // If no lessons, progress is 0
+  const getProgressForCourse = (
+    courseId: string,
+    totalLessons: number
+  ): number => {
     if (totalLessons === 0) return 0;
-    
-    // Get completed lessons from localStorage
-    const saved = localStorage.getItem(`completed_lessons_${user?.uid}_${courseId}`);
-    const completedLessons = saved ? JSON.parse(saved).length : 0;
-    
-    // Calculate progress percentage
-    return Math.round((completedLessons / totalLessons) * 100);
+
+    const saved = localStorage.getItem(
+      `completed_lessons_${user?.uid}_${courseId}`
+    );
+
+    let completedLessons = 0;
+
+    if (saved) {
+      try {
+        const parsed: unknown = JSON.parse(saved);
+
+        if (Array.isArray(parsed)) {
+          completedLessons = parsed.length;
+        }
+      } catch {
+        completedLessons = 0;
+      }
+    }
+
+    return Math.min(
+      100,
+      Math.round((completedLessons / totalLessons) * 100)
+    );
   };
 
-  const getProgress = (courseId: string) => courseProgress[courseId] || 0;
+  const getProgress = (courseId: string) =>
+    courseProgress[courseId] ?? 0;
 
-  // Sync progress to Firestore when a course is completed
+  // Sync completion to Firestore when a course is completed.
   const syncCompletionToFirestore = async (courseId: string) => {
     if (!user) return;
+
     try {
       const userRef = doc(db, 'users', user.uid);
-      const currentCompleted = user?.completedCourses || [];
+      const currentCompleted = user.completedCourses ?? [];
+
       if (!currentCompleted.includes(courseId)) {
+        const updatedCompleted = [...currentCompleted, courseId];
+
         await updateDoc(userRef, {
-          completedCourses: [...currentCompleted, courseId]
+          completedCourses: updatedCompleted,
         });
-        // Update local user object
-        user.completedCourses = [...currentCompleted, courseId];
+
+        // Keep the in-memory user data in sync.
+        user.completedCourses = updatedCompleted;
       }
     } catch (error) {
       console.error('Error syncing completion:', error);
     }
   };
 
-  // Calculate statistics
-  const totalHours = allEnrolledCourses.reduce((sum, course) => sum + (course.duration || 0), 0);
+  const totalHours = allEnrolledCourses.reduce(
+    (sum, course) => sum + (course.duration ?? 0),
+    0
+  );
 
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600" />
       </div>
     );
   }
 
   return (
     <div className="flex-1">
-      {/* Header */}
       <div className="border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
         <div className="max-w-7xl mx-auto px-6 py-8">
           <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
@@ -154,41 +235,59 @@ export default function MyLearningPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6">
-        {/* Stats Summary */}
         {allEnrolledCourses.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-100'}`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Total Enrolled</p>
-                  <p className={`text-2xl font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{allEnrolledCourses.length}</p>
+                  <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Total Enrolled
+                  </p>
+                  <p className={`text-2xl font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {allEnrolledCourses.length}
+                  </p>
                 </div>
                 <BookOpen className={`h-5 w-5 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
               </div>
             </div>
+
             <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-100'}`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>In Progress</p>
-                  <p className={`text-2xl font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{inProgressCourses.length}</p>
+                  <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    In Progress
+                  </p>
+                  <p className={`text-2xl font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {inProgressCourses.length}
+                  </p>
                 </div>
                 <TrendingUp className={`h-5 w-5 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
               </div>
             </div>
+
             <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-100'}`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Completed</p>
-                  <p className={`text-2xl font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{completedCourses.length}</p>
+                  <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Completed
+                  </p>
+                  <p className={`text-2xl font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {completedCourses.length}
+                  </p>
                 </div>
                 <Award className={`h-5 w-5 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
               </div>
             </div>
+
             <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-100'}`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Learning Hours</p>
-                  <p className={`text-2xl font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalHours}</p>
+                  <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Learning Hours
+                  </p>
+                  <p className={`text-2xl font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {totalHours}
+                  </p>
                 </div>
                 <Clock className={`h-5 w-5 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
               </div>
@@ -206,62 +305,77 @@ export default function MyLearningPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* In Progress Tab */}
           <TabsContent value="in-progress" className="space-y-4">
             {inProgressCourses.length > 0 ? (
               <div className="space-y-4">
                 {inProgressCourses.map((course) => {
                   const progress = getProgress(course.id);
-                  const completedLessonsCount = Math.floor((progress / 100) * (course.lessonCount || 0));
-                  
+                  const completedLessonsCount = Math.floor(
+                    (progress / 100) * course.totalLessons
+                  );
+
                   return (
                     <div key={course.id} className={`group rounded-xl border overflow-hidden transition-all duration-300 hover:shadow-md ${isDarkMode ? 'bg-gray-800/50 border-gray-700 hover:bg-gray-800' : 'bg-white border-gray-100 hover:shadow-lg'}`}>
                       <div className="flex flex-col md:flex-row">
                         <div className="md:w-48 h-32 bg-gray-100 dark:bg-gray-700 overflow-hidden">
                           <img
                             src={course.imageUrl || 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06'}
-                            alt={course.title}
+                            alt={course.title || 'Course'}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           />
                         </div>
+
                         <div className="flex-1 p-4">
                           <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-2 mb-2">
                             <div>
                               <h3 className={`font-semibold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                {course.title}
+                                {course.title || 'Untitled course'}
                               </h3>
                               <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                 {course.instructorName || 'Shara Academy'}
                               </p>
                             </div>
+
                             <div className="flex items-center gap-1">
                               <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                              <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{course.rating || 4.5}</span>
+                              <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {course.rating ?? 4.5}
+                              </span>
                             </div>
                           </div>
-                          
+
                           <div className="mb-3">
                             <div className="flex justify-between text-xs mb-1">
-                              <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Progress</span>
-                              <span className="font-medium text-green-600">{progress}%</span>
+                              <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>
+                                Progress
+                              </span>
+                              <span className="font-medium text-green-600">
+                                {progress}%
+                              </span>
                             </div>
+
                             <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                              <div className="h-full bg-green-600 rounded-full transition-all" style={{ width: `${progress}%` }}></div>
+                              <div
+                                className="h-full bg-green-600 rounded-full transition-all"
+                                style={{ width: `${progress}%` }}
+                              />
                             </div>
+
                             <p className="text-xs text-gray-500 mt-1">
-                              {completedLessonsCount} of {course.lessonCount || 0} lessons completed
+                              {completedLessonsCount} of {course.totalLessons} lessons completed
                             </p>
                           </div>
 
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                               <span className="flex items-center gap-1">
-                                <Clock className="h-3.5 w-3.5" /> {course.duration || 0} hours
+                                <Clock className="h-3.5 w-3.5" /> {course.duration ?? 0} hours
                               </span>
                               <span className="flex items-center gap-1">
-                                <BookOpen className="h-3.5 w-3.5" /> {course.lessonCount || 0} lessons
+                                <BookOpen className="h-3.5 w-3.5" /> {course.totalLessons} lessons
                               </span>
                             </div>
+
                             <Link href={`/courses/${course.id}`}>
                               <Button size="sm" className="bg-green-700 hover:bg-green-800">
                                 Continue
@@ -280,16 +394,21 @@ export default function MyLearningPage() {
                 <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
                   <BookOpen className="h-7 w-7 text-gray-400" />
                 </div>
-                <h3 className={`text-base font-medium mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>No courses in progress</h3>
-                <p className={`text-sm mb-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Enroll in a course to start learning</p>
+                <h3 className={`text-base font-medium mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  No courses in progress
+                </h3>
+                <p className={`text-sm mb-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Enroll in a course to start learning
+                </p>
                 <Link href="/courses">
-                  <Button size="sm" className="bg-green-700 hover:bg-green-800">Browse Courses</Button>
+                  <Button size="sm" className="bg-green-700 hover:bg-green-800">
+                    Browse Courses
+                  </Button>
                 </Link>
               </div>
             )}
           </TabsContent>
 
-          {/* Completed Tab */}
           <TabsContent value="completed" className="space-y-4">
             {completedCourses.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -298,29 +417,32 @@ export default function MyLearningPage() {
                     <div className="relative h-32 overflow-hidden">
                       <img
                         src={course.imageUrl || 'https://images.unsplash.com/photo-1446776653964-20c1d3a81b06'}
-                        alt={course.title}
+                        alt={course.title || 'Course'}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                       <div className="absolute bottom-2 left-2">
                         <div className="flex items-center gap-1 bg-green-500 text-white text-xs font-medium px-2 py-0.5 rounded-full">
                           <CheckCircle className="h-3 w-3" /> Completed
                         </div>
                       </div>
                     </div>
+
                     <div className="p-4">
                       <h3 className={`font-semibold text-sm line-clamp-1 mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                        {course.title}
+                        {course.title || 'Untitled course'}
                       </h3>
                       <p className={`text-xs mb-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                         {course.instructorName || 'Shara Academy'}
                       </p>
+
                       <div className="flex gap-2">
                         <Link href={`/certificates/${course.id}`} className="flex-1">
                           <Button size="sm" className="w-full bg-green-700 hover:bg-green-800">
                             <Award className="mr-1 h-3 w-3" /> Certificate
                           </Button>
                         </Link>
+
                         <Link href={`/courses/${course.id}`} className="flex-1">
                           <Button size="sm" variant="outline" className="w-full">
                             Review
@@ -336,10 +458,16 @@ export default function MyLearningPage() {
                 <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
                   <Award className="h-7 w-7 text-gray-400" />
                 </div>
-                <h3 className={`text-base font-medium mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>No completed courses</h3>
-                <p className={`text-sm mb-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Complete a course to earn a certificate</p>
+                <h3 className={`text-base font-medium mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  No completed courses
+                </h3>
+                <p className={`text-sm mb-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Complete a course to earn a certificate
+                </p>
                 <Link href="/courses">
-                  <Button size="sm" className="bg-green-700 hover:bg-green-800">Browse Courses</Button>
+                  <Button size="sm" className="bg-green-700 hover:bg-green-800">
+                    Browse Courses
+                  </Button>
                 </Link>
               </div>
             )}
